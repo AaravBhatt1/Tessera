@@ -8,6 +8,9 @@
 import SwiftUI
 import SwiftData
 
+// Temporary
+import ApplicationServices
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var items: [Item]
@@ -33,10 +36,51 @@ struct ContentView: View {
                 }
             }
         } detail: {
-            Text("Select an item")
+            // Text("Select an item")
+            // Temporary
+            Button("Test", action: testAS)
+
         }
     }
-
+    
+    // Temporary
+    private func testAS() {
+        print ("New Call")
+        let runningApps : [NSRunningApplication] = NSWorkspace.shared.runningApplications
+        
+        for app in runningApps {
+            if let appName : String = app.localizedName {
+                                
+                let appElement : AXUIElement = AXUIElementCreateApplication(app.processIdentifier)
+                
+                var windowsListRef : CFTypeRef?
+                let result : AXError = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsListRef)
+                
+                if result == .success, let windows = windowsListRef as? [AXUIElement] {
+                    for window : AXUIElement in windows {
+                        var titleRef : CFTypeRef?
+                        let titleResult : AXError = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
+                        
+                        if titleResult == .success, let titleName = titleRef as? String {
+                            print ("Window: \(titleName), App: \(appName)")
+                        }
+                        
+                        var positionRef : CFTypeRef?
+                        let positionResult : AXError = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionRef)
+                        
+                        if positionResult == .success  {
+                            var point = CGPoint.zero
+                            AXValueGetValue(positionRef as! AXValue, .cgPoint, &point)
+                            print ("Position \(point.x), \(point.y)")
+                            
+                        }
+                    }
+                }
+                
+            }
+        }
+    }
+    
     private func addItem() {
         withAnimation {
             let newItem = Item(timestamp: Date())
