@@ -37,8 +37,16 @@ actor WindowManager {
             
             for window in appWindows {
                 
+                
+                
                 // Skips non-existant windows
                 if getWindowTitle(for: window) == nil {
+                    continue
+                }
+                
+                var isMinimized: CFTypeRef?
+                let axResult = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &isMinimized)
+                if axResult == .success, isMinimized as? Bool == true {
                     continue
                 }
                 
