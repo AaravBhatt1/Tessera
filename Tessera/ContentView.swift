@@ -38,46 +38,21 @@ struct ContentView: View {
         } detail: {
             // Text("Select an item")
             // Temporary
-            Button("Test", action: testAS)
-
-        }
-    }
-    
-    // Temporary
-    private func testAS() {
-        print ("New Call")
-        let runningApps : [NSRunningApplication] = NSWorkspace.shared.runningApplications
-        
-        for app in runningApps {
-            if let appName : String = app.localizedName {
-                                
-                let appElement : AXUIElement = AXUIElementCreateApplication(app.processIdentifier)
-                
-                var windowsListRef : CFTypeRef?
-                let result : AXError = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsListRef)
-                
-                if result == .success, let windows = windowsListRef as? [AXUIElement] {
-                    for window : AXUIElement in windows {
-                        var titleRef : CFTypeRef?
-                        let titleResult : AXError = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
-                        
-                        if titleResult == .success, let titleName = titleRef as? String {
-                            print ("Window: \(titleName), App: \(appName)")
-                        }
-                        
-                        var positionRef : CFTypeRef?
-                        let positionResult : AXError = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionRef)
-                        
-                        if positionResult == .success  {
-                            var point = CGPoint.zero
-                            AXValueGetValue(positionRef as! AXValue, .cgPoint, &point)
-                            print ("Position \(point.x), \(point.y)")
-                            
-                        }
+            Button("Test", action: {
+                Task {
+                    let windows : [(String, AXUIElement)] = await WindowManager.shared.getAllWindows()
+                    for (app, window) in windows {
+                        let windowTitle : String = await WindowManager.shared.getWindowTitle(for: window) ?? "unknown"
+                        let windowPosition : (Int, Int) = await WindowManager.shared.getWindowPosition(for: window)!
+                        print("\(app): \(windowTitle) at \(windowPosition)")
                     }
+                    
+                    let window : AXUIElement = windows.first!.1
+                    await WindowManager.shared.setWindowPosition(for: window, to: (10, 10))
+                    await WindowManager.shared.setWindowSize(for: window, to: (1000, 1000))
                 }
-                
-            }
+            })
+
         }
     }
     
