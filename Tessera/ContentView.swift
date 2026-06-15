@@ -46,8 +46,10 @@ struct ContentView: View {
                         let windowPosition : (Int, Int) = await WindowManager.shared.getWindowPosition(for: window)!
                         print("\(app): \(windowTitle) at \(windowPosition)")
                         await WindowManager.shared.setWindowPosition(for: window, to: (0, 0))
+                        
                     }
-                    
+                    await LayoutSolver().solve()
+
                 }
             })
 

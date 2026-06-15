@@ -17,6 +17,7 @@ actor WindowManager {
     private init() {}
     
     // This function returns a list of pairs of windows on the screen and their associated application ID
+    // TODO: Move getting application ID to a seperate function
     func getAllWindows() -> [(String, AXUIElement)] {
         var output : [(String, AXUIElement)] = []
         let runningApps : [NSRunningApplication] = NSWorkspace.shared.runningApplications
@@ -36,8 +37,6 @@ actor WindowManager {
             }
             
             for window in appWindows {
-                
-                
                 
                 // Skips non-existant windows
                 if getWindowTitle(for: window) == nil {
@@ -67,6 +66,7 @@ actor WindowManager {
         return title
     }
     
+    // TODO: Do I need this?
     // Returns the x and y coordinates of a window
     func getWindowPosition(for window: AXUIElement) -> (Int, Int)? {
         var positionRef : CFTypeRef?
@@ -83,6 +83,7 @@ actor WindowManager {
         
         return (Int(position.x), Int(position.y))
     }
+    
     
     // Returns the width and height of a window
     func getWindowSize(for window: AXUIElement) -> (Int, Int)? {
@@ -147,6 +148,22 @@ actor WindowManager {
             return false
         }
         return true
+    }
+    
+    // Get window ID of a window
+    func getWindowID(for window : AXUIElement) -> CGWindowID? {
+        var ref : CFTypeRef?
+        let result : AXError = AXUIElementCopyAttributeValue(window, "kAXCGWindowIDAttribute" as CFString, &ref)
+        guard result == .success else {
+            return nil
+        }
+        
+        var windowID : CGWindowID = 0
+        if CFNumberGetValue((ref as! CFNumber), .intType, &windowID) {
+            return windowID
+        } else {
+            return nil
+        }
     }
     
     // Returns the current focused window
