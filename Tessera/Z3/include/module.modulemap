@@ -1,0 +1,5 @@
+module Z3 {
+    header "z3++.h"
+    requires cplusplus
+    export *
+}

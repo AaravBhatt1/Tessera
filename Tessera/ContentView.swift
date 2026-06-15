@@ -45,11 +45,9 @@ struct ContentView: View {
                         let windowTitle : String = await WindowManager.shared.getWindowTitle(for: window) ?? "unknown"
                         let windowPosition : (Int, Int) = await WindowManager.shared.getWindowPosition(for: window)!
                         print("\(app): \(windowTitle) at \(windowPosition)")
+                        await WindowManager.shared.setWindowPosition(for: window, to: (0, 0))
                     }
                     
-                    let window : AXUIElement = windows.first!.1
-                    await WindowManager.shared.setWindowPosition(for: window, to: (10, 10))
-                    await WindowManager.shared.setWindowSize(for: window, to: (1000, 1000))
                 }
             })
 

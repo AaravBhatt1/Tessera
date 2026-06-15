@@ -103,6 +103,16 @@ actor WindowManager {
     
     // Sets the window position to an x and y co-ordinate
     func setWindowPosition(for window: AXUIElement, to position: (Int, Int)) -> Bool {
+        // Check if window is the same application
+        var pid : pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let myPid : pid_t = getpid()
+        guard pid != myPid else {
+            // TODO: Potentially support modifying my own window
+            return false
+        }
+
+        
         var cgPoint : CGPoint = CGPoint(x: CGFloat(position.0), y: CGFloat(position.1))
         guard let axPosition = AXValueCreate(.cgPoint, &cgPoint) else {
             return false
@@ -117,6 +127,16 @@ actor WindowManager {
     
     // Sets the window size to a width and height
     func setWindowSize(for window: AXUIElement, to size: (Int, Int)) -> Bool {
+        // Check if window is the same application
+        var pid : pid_t = 0
+        AXUIElementGetPid(window, &pid)
+        let myPid : pid_t = getpid()
+        guard pid != myPid else {
+            // TODO: Potentially support modifying my own window
+            return false
+        }
+        
+        
         var cgSize : CGSize = CGSize(width: CGFloat(size.0), height: CGFloat(size.1))
         guard let axSize = AXValueCreate(.cgSize, &cgSize) else {
             return false
@@ -127,5 +147,22 @@ actor WindowManager {
             return false
         }
         return true
+    }
+    
+    // Returns the current focused window
+    func getCurrentFocusedWindow() -> AXUIElement? {
+        let currentApplication : NSRunningApplication? = NSWorkspace.shared.frontmostApplication
+        if currentApplication == nil {
+            return nil
+        }
+        let appElement : AXUIElement = AXUIElementCreateApplication(currentApplication!.processIdentifier)
+        var windowRef : CFTypeRef?
+        let result : AXError = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowRef)
+        guard result == .success else {
+            return nil
+        }
+        
+        let window = windowRef as! AXUIElement
+        return window
     }
 }
