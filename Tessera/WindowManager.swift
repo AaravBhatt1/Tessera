@@ -9,17 +9,12 @@ import Foundation
 import ApplicationServices
 import AppKit
 
-actor WindowManager {
-    
-    // Singleton instance
-    static let shared = WindowManager()
-    
-    private init() {}
+class WindowManager {
     
     // This function returns a list of pairs of windows on the screen and their associated application ID
     // TODO: Move getting application ID to a seperate function
-    func getAllWindows() -> [(String, AXUIElement)] {
-        var output : [(String, AXUIElement)] = []
+    static func getAllWindows() -> [AXUIElement] {
+        var output : [AXUIElement] = []
         let runningApps : [NSRunningApplication] = NSWorkspace.shared.runningApplications
         
         for app in runningApps {
@@ -32,7 +27,7 @@ actor WindowManager {
             var windowsListRef : CFTypeRef?
             let windowResult : AXError = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsListRef)
             
-            guard windowResult == .success, let appWindows = windowsListRef as? [AXUIElement], let appID : String = app.bundleIdentifier else {
+            guard windowResult == .success, let appWindows = windowsListRef as? [AXUIElement], let _ = app.bundleIdentifier else {
                 continue
             }
             
@@ -43,13 +38,13 @@ actor WindowManager {
                     continue
                 }
                 
-                var isMinimized: CFTypeRef?
-                let axResult = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &isMinimized)
+                var isMinimized : CFTypeRef?
+                let axResult : AXError = AXUIElementCopyAttributeValue(window, kAXMinimizedAttribute as CFString, &isMinimized)
                 if axResult == .success, isMinimized as? Bool == true {
                     continue
                 }
                 
-                output.append((appID, window))
+                output.append(window)
             }
         }
         
@@ -57,7 +52,7 @@ actor WindowManager {
     }
     
     // Returns the title of the window
-    func getWindowTitle(for window: AXUIElement) -> String? {
+    static func getWindowTitle(for window: AXUIElement) -> String? {
         var titleRef : CFTypeRef?
         let titleResult : AXError = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
         guard titleResult == .success, let title = titleRef as? String else {
@@ -68,7 +63,7 @@ actor WindowManager {
     
     // TODO: Do I need this?
     // Returns the x and y coordinates of a window
-    func getWindowPosition(for window: AXUIElement) -> (Int, Int)? {
+    static func getWindowPosition(for window: AXUIElement) -> (Int, Int)? {
         var positionRef : CFTypeRef?
         let axResult : AXError = AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &positionRef)
         guard axResult == .success else {
@@ -85,8 +80,9 @@ actor WindowManager {
     }
     
     
+    // TODO: Do I need this?
     // Returns the width and height of a window
-    func getWindowSize(for window: AXUIElement) -> (Int, Int)? {
+    static func getWindowSize(for window: AXUIElement) -> (Int, Int)? {
         var sizeRef : CFTypeRef?
         let axResult : AXError = AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
         guard axResult == .success else {
@@ -102,8 +98,17 @@ actor WindowManager {
         return (Int(size.width), Int(size.height))
     }
     
+    // Returns the width and height of the main screen
+    static func getScreenSize() -> (Int, Int)? {
+        guard let screen : NSScreen = NSScreen.main else {
+            return nil
+        }
+        let frame : CGRect = screen.frame
+        return (Int(frame.width), Int(frame.height))
+    }
+
     // Sets the window position to an x and y co-ordinate
-    func setWindowPosition(for window: AXUIElement, to position: (Int, Int)) -> Bool {
+    static func setWindowPosition(for window: AXUIElement, to position: (Int, Int)) -> Bool {
         // Check if window is the same application
         var pid : pid_t = 0
         AXUIElementGetPid(window, &pid)
@@ -127,7 +132,7 @@ actor WindowManager {
     }
     
     // Sets the window size to a width and height
-    func setWindowSize(for window: AXUIElement, to size: (Int, Int)) -> Bool {
+    static func setWindowSize(for window: AXUIElement, to size: (Int, Int)) -> Bool {
         // Check if window is the same application
         var pid : pid_t = 0
         AXUIElementGetPid(window, &pid)
@@ -150,24 +155,38 @@ actor WindowManager {
         return true
     }
     
-    // Get window ID of a window
-    func getWindowID(for window : AXUIElement) -> CGWindowID? {
-        var ref : CFTypeRef?
-        let result : AXError = AXUIElementCopyAttributeValue(window, "kAXCGWindowIDAttribute" as CFString, &ref)
-        guard result == .success else {
-            return nil
+    // Update layout
+    static func optimizeLayout() async -> Bool {
+        let windows : [AXUIElement] = getAllWindows()
+        let windowDataList : [WindowData] = windows.map { WindowData(element: $0) }
+        guard let (xMax, yMax) = getScreenSize() else {return false}
+        let layoutSolver : LayoutSolver = LayoutSolver()
+        for w in windowDataList {
+            await layoutSolver.addWindow(window: w)
+            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: 600))
+            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 500))
+            await layoutSolver.addConstraints(constraint: .maximumWidth(window: w, wMax: (xMax - 100)))
+            await layoutSolver.addConstraints(constraint: .maximumHeight(window: w, hMax: (yMax - 100)))
+            await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
+            await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
+            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax))
+            await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax))
+
         }
         
-        var windowID : CGWindowID = 0
-        if CFNumberGetValue((ref as! CFNumber), .intType, &windowID) {
-            return windowID
-        } else {
-            return nil
+        for w1 in windowDataList {
+            for w2 in windowDataList {
+                if (w1 == w2) {continue}
+                await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
+            }
         }
+
+        let result : Bool = await layoutSolver.solve()
+        return result
     }
     
     // Returns the current focused window
-    func getCurrentFocusedWindow() -> AXUIElement? {
+    static func getCurrentFocusedWindow() -> AXUIElement? {
         let currentApplication : NSRunningApplication? = NSWorkspace.shared.frontmostApplication
         if currentApplication == nil {
             return nil
@@ -179,7 +198,7 @@ actor WindowManager {
             return nil
         }
         
-        let window = windowRef as! AXUIElement
+        let window : AXUIElement = windowRef as! AXUIElement
         return window
     }
 }

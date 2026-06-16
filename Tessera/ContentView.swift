@@ -40,18 +40,11 @@ struct ContentView: View {
             // Temporary
             Button("Test", action: {
                 Task {
-                    let windows : [(String, AXUIElement)] = await WindowManager.shared.getAllWindows()
-                    for (app, window) in windows {
-                        let windowTitle : String = await WindowManager.shared.getWindowTitle(for: window) ?? "unknown"
-                        let windowPosition : (Int, Int) = await WindowManager.shared.getWindowPosition(for: window)!
-                        print("\(app): \(windowTitle) at \(windowPosition)")
-                        await WindowManager.shared.setWindowPosition(for: window, to: (0, 0))
-                        
+                    await WindowManager.optimizeLayout()
                     }
-                    await LayoutSolver().solve()
 
                 }
-            })
+            )
 
         }
     }

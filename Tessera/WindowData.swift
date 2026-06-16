@@ -8,32 +8,34 @@
 import Foundation
 import ApplicationServices
 
-struct WindowData {
-    let id : CGWindowID
-    let pid : pid_t
-    let x : Int?
-    let y : Int?
-    let width : Int?
-    let height : Int?
-    
-    // Z3 variable name for width
-    func getWindowWidthVar() -> String {
-        return "\(id)_width"
-    }
-    
-    // Z3 variable name for height
-    func getWindowHeightVar() -> String {
-        return "\(id)_height"
-    }
-    
-    // Z3 variable name for x pos
-    func getWindowXVar() -> String {
-        return "\(id)_x"
-    }
-    
-    // Z3 variable name for y pos
-    func getWindowYVar() -> String {
-        return "\(id)_y"
+struct WindowData : Hashable, Equatable {
+    let element : AXUIElement
+
+    init(element : AXUIElement) {
+        self.element = element
     }
 
+    static func == (l : WindowData, r : WindowData) -> Bool {
+        return CFEqual(l.element, r.element)
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(CFHash(element))
+    }
+
+    func getWindowWidthVar() -> String {
+        return "\(CFHash(element))_width"
+    }
+
+    func getWindowHeightVar() -> String {
+        return "\(CFHash(element))_height"
+    }
+
+    func getWindowXVar() -> String {
+        return "\(CFHash(element))_x"
+    }
+
+    func getWindowYVar() -> String {
+        return "\(CFHash(element))_y"
+    }
 }
