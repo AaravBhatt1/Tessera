@@ -162,20 +162,21 @@ class WindowManager {
         guard let (xMax, yMax) = getScreenSize() else {return false}
         let layoutSolver : LayoutSolver = LayoutSolver()
         for w in windowDataList {
+            if (WindowManager.getWindowTitle(for: w.element)! == "Tessera") {continue}
             await layoutSolver.addWindow(window: w)
-            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: 600))
-            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 300))
-            await layoutSolver.addConstraints(constraint: .maximumWidth(window: w, wMax: (xMax - 5)))
-            await layoutSolver.addConstraints(constraint: .maximumHeight(window: w, hMax: (yMax - 5)))
+            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: 200))
+            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 200))
             await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
             await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
-            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax))
-            await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax))
+            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax - 10))
+            await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax - 20))
 
         }
         
         for w1 in windowDataList {
+            if (WindowManager.getWindowTitle(for: w1.element)! == "Tessera") {continue}
             for w2 in windowDataList {
+                if (WindowManager.getWindowTitle(for: w2.element)! == "Tessera") {continue}
                 if (w1 == w2) {continue}
                 await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
             }

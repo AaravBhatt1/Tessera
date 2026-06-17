@@ -22,7 +22,7 @@ enum LayoutConstraint {
 
 actor LayoutSolver {
 
-    var padding : Int = 5
+    var padding : Int = 10
 
     private var variableNames : [String : WindowData] = [:]
     private var windows : [WindowData] = []
@@ -50,6 +50,7 @@ actor LayoutSolver {
 
         let tactic : z3.tactic = z3.tactic.init(&context, "qfnra-nlsat")
         var solver : z3.solver = tactic.mk_solver()
+        solver.set("timeout", UInt32(1000))
 
         for constraint in constraints {
             switch constraint {
@@ -91,7 +92,8 @@ actor LayoutSolver {
                       let w2Width : z3.expr = await variables[w2.getWindowWidthVar()],
                       let w2Height : z3.expr = await variables[w2.getWindowHeightVar()] else { return false }
                 let pad : z3.expr = context.real_val(Int32(padding))
-                solver.add((w1X + w1Width + pad <= w2X) || (w2X + w2Width + pad <= w1X) || (w1Y + w1Height + pad + 8 <= w2Y) || (w2Y + w2Height + pad + 8 <= w1Y))
+                
+                solver.add((w1X + w1Width + pad <= w2X) || (w2X + w2Width + pad <= w1X) || (w1Y + w1Height + pad + 20 <= w2Y) || (w2Y + w2Height + pad + 20 <= w1Y))
             }
         }
 
@@ -103,14 +105,41 @@ actor LayoutSolver {
             totalArea = totalArea + (width * height)
 
         }
+        
+        guard let (xMax, yMax) = await WindowManager.getScreenSize() else {
+            return false
+        }
 
-        solver.add(totalArea > 1700000)
+        let maxArea = (xMax - 10) * (yMax - 10)
 
-        let check : z3.check_result = solver.check()
-        guard check == z3.sat else { return false }
+        var low : Int = 0
+        var high : Int = maxArea
+        var bestModel : z3.model? = nil
 
-        let model : z3.model = solver.get_model()
-        print(model.eval(totalArea).as_double())
+        for i in 0..<10{
+            let mid : Int = (low + high) / 2
+
+            solver.push()
+            solver.add(totalArea >= context.real_val(Int32(mid)))
+
+            print (i)
+
+            if solver.check() == z3.sat {
+                bestModel = solver.get_model()
+                low = mid + 1
+            } else {
+                solver.pop()
+                high = mid - 1
+            }
+
+            if low > high {
+                break
+            }
+        }
+
+        guard let model : z3.model = bestModel else {
+            return false
+        }
 
         for window in windows {
             let width : Int? = await variables[window.getWindowWidthVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
@@ -119,10 +148,15 @@ actor LayoutSolver {
             let y : Int? = await variables[window.getWindowYVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
 
             if let w : Int = width, let h : Int = height {
-                let _ : Bool = await WindowManager.setWindowSize(for: window.element, to: (w, h))
+                
+                guard await WindowManager.setWindowSize(for: window.element, to: (w, h)) else {
+                    return false
+                }
             }
             if let px : Int = x, let py : Int = y {
-                let _ : Bool = await WindowManager.setWindowPosition(for: window.element, to: (px, py))
+                guard await WindowManager.setWindowPosition(for: window.element, to: (px, py)) else {
+                    return false
+                }
             }
         }
 
