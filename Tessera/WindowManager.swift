@@ -164,9 +164,9 @@ class WindowManager {
         for w in windowDataList {
             await layoutSolver.addWindow(window: w)
             await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: 600))
-            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 500))
-            await layoutSolver.addConstraints(constraint: .maximumWidth(window: w, wMax: (xMax - 100)))
-            await layoutSolver.addConstraints(constraint: .maximumHeight(window: w, hMax: (yMax - 100)))
+            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 300))
+            await layoutSolver.addConstraints(constraint: .maximumWidth(window: w, wMax: (xMax - 5)))
+            await layoutSolver.addConstraints(constraint: .maximumHeight(window: w, hMax: (yMax - 5)))
             await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
             await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
             await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax))
