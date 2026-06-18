@@ -152,9 +152,29 @@ class WindowManager {
         guard sizeResult == .success else {
             return false
         }
+        
         return true
     }
     
+    // Resizes the window down to find the smallest size the app will allow, then optionally restores the original size
+    static func getMinimumWindowSize(for window: AXUIElement, restoreOriginalSize: Bool = true) -> (Int, Int)? {
+        guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
+            return nil
+        }
+
+        guard setWindowSize(for: window, to: (200, 200)) else {
+            return nil
+        }
+
+        let minimumSize : (Int, Int)? = getWindowSize(for: window)
+
+        if restoreOriginalSize {
+            _ = setWindowSize(for: window, to: originalSize)
+        }
+
+        return minimumSize
+    }
+
     // Update layout
     static func optimizeLayout() async -> Bool {
         let windows : [AXUIElement] = getAllWindows()
@@ -164,8 +184,9 @@ class WindowManager {
         for w in windowDataList {
             if (WindowManager.getWindowTitle(for: w.element)! == "Tessera") {continue}
             await layoutSolver.addWindow(window: w)
-            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: 200))
-            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: 200))
+            let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: w.element) ?? (100, 100)
+            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: minWidth))
+            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: minHeight))
             await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
             await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
             await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax - 10))
@@ -173,12 +194,13 @@ class WindowManager {
 
         }
         
-        for w1 in windowDataList {
+        for (n1, w1) in windowDataList.enumerated() {
             if (WindowManager.getWindowTitle(for: w1.element)! == "Tessera") {continue}
-            for w2 in windowDataList {
+            for (n2, w2) in windowDataList.enumerated() {
                 if (WindowManager.getWindowTitle(for: w2.element)! == "Tessera") {continue}
-                if (w1 == w2) {continue}
-                await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
+                if (n1 < n2) {
+                    await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
+                }
             }
         }
 
