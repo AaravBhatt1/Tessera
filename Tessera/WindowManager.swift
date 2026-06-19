@@ -90,7 +90,7 @@ class WindowManager {
         }
         
         var size = CGSize.zero
-        let sizeResult : Bool = AXValueGetValue(sizeRef as! AXValue, .cgPoint, &size)
+        let sizeResult : Bool = AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
         guard sizeResult else {
             return nil
         }

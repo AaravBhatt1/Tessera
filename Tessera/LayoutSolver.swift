@@ -24,16 +24,6 @@ actor LayoutSolver {
 
     var padding : Int = 15
 
-    // Tunables for the soft area-optimization objective in solve(). Both
-    // operate on a linear (perimeter-based) proxy for area rather than area
-    // itself, so the whole model stays in QF_LRA.
-
-    // How strongly each window is pulled toward a square (1:1) ratio,
-    // relative to the reward for simply growing bigger.
-    var aspectRatioWeight : Double = 300
-    // How strongly windows are pulled toward being similarly sized.
-    var balanceWeight : Double = 0.5
-
     private var variableNames : [String : WindowData] = [:]
     private var windows : [WindowData] = []
     private var constraints : [LayoutConstraint] = []
@@ -58,17 +48,11 @@ actor LayoutSolver {
             variables.updateValue(context.real_const(key), forKey: key)
         }
 
+        // let tactic : z3.tactic = z3.tactic.init(&context, "qfnra-nlsat")
         var optimizer : z3.optimize = z3.optimize(&context)
+        //optimizer.set("timeout", UInt32(2000))
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(5000))
-        optimizer.set(params)
-
-        // Converts a Double into an exact z3 rational, since the optimizer's
-        // weights and target ratios aren't whole numbers.
-        func realVal(_ value : Double) -> z3.expr {
-            let denominator : Int64 = 1_000_000
-            return context.real_val(Int64((value * Double(denominator)).rounded()), denominator)
-        }
+        params.set("timeout", UInt32(2000))
 
         for constraint in constraints {
             switch constraint {
@@ -114,40 +98,22 @@ actor LayoutSolver {
                 optimizer.add((w1X + w1Width + pad <= w2X) || (w2X + w2Width + pad <= w1X) || (w1Y + w1Height + pad + 20 <= w2Y) || (w2Y + w2Height + pad + 20 <= w1Y))
             }
         }
-
-        // Soft objective: maximise total perimeter (a linear stand-in for
-        // area, since for a fixed 1:1 ratio area = (width+height)^2/4 - a
-        // monotonic function of that sum), penalised by how far each window
-        // sits from a square and by how unevenly sized the windows are.
-        var weightedSizes : [z3.expr] = []
-        var objective : z3.expr = context.real_val(Int32(0))
-
-        for window in windows {
-            guard let width : z3.expr = await variables[window.getWindowWidthVar()],
-                  let height : z3.expr = await variables[window.getWindowHeightVar()]
-            else { return false }
-
-            let weightedSize : z3.expr = width + height
-            weightedSizes.append(weightedSize)
-
-            let ratioDeviation : z3.expr = z3.abs(width - height)
-            objective = objective + weightedSize - realVal(aspectRatioWeight) * ratioDeviation
+        
+        var perimeter : z3.expr = context.real_val(Int32(0))
+        for w in windows {
+            let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!
+            let wHeight : z3.expr = await variables[w.getWindowHeightVar()]!
+            perimeter = perimeter + wWidth + wHeight
         }
-
-        if !weightedSizes.isEmpty {
-            var totalWeightedSize : z3.expr = context.real_val(Int32(0))
-            for size in weightedSizes {
-                totalWeightedSize = totalWeightedSize + size
-            }
-            let avgWeightedSize : z3.expr = totalWeightedSize / context.real_val(Int32(weightedSizes.count))
-
-            for size in weightedSizes {
-                let imbalance : z3.expr = z3.abs(size - avgWeightedSize)
-                objective = objective - realVal(balanceWeight) * imbalance
-            }
+        
+        for w in windows {
+            let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!
+            let wHeight : z3.expr = await variables[w.getWindowHeightVar()]!
+            optimizer.add_soft(wWidth == wHeight, 20)
         }
-
-        _ = optimizer.maximize(objective)
+        
+        optimizer.maximize(perimeter)
+        
 
         if optimizer.check() == z3.unsat {
             return false
