@@ -203,15 +203,6 @@ class WindowManager {
                 }
             }
         }
-        
-        // Temporary Constraint
-        for w in windowDataList {
-            guard let title : String = getWindowTitle(for: w.element) else { continue }
-            print (title)
-            if title.lowercased().contains("mail") {
-                await layoutSolver.addConstraints(constraint: .portraitPref(window: w))
-            }
-        }
 
         let result : Bool = await layoutSolver.solve()
         return result

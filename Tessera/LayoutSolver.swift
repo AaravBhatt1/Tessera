@@ -18,12 +18,16 @@ enum LayoutConstraint {
     case minimumY(window : WindowData, yMin : Int)
     case maximumY(window : WindowData, yMax : Int)
     case noOverlap(window1 : WindowData, window2 : WindowData)
-    case landscapePref(window: WindowData, weight: Int? = nil)
-    case portraitPref(window: WindowData, weight: Int? = nil)
-    case prefWidth(window: WindowData, width: Int, weight: Int? = nil)
-    case prefHeight(window: WindowData, height: Int, weight: Int? = nil)
-    case prefX(window: WindowData, x: Int, weight: Int? = nil)
-    case prefY(window: WindowData, y: Int, weight: Int? = nil)
+    case landscapePref(window: WindowData, weight: Int = 30)
+    case portraitPref(window: WindowData, weight: Int = 30)
+    case prefWidth(window: WindowData, width: Int, weight: Int = 20)
+    case prefHeight(window: WindowData, height: Int, weight: Int = 20)
+    case prefX(window: WindowData, x: Int, weight: Int = 20)
+    case prefY(window: WindowData, y: Int, weight: Int = 20)
+    case leftOfPref(window1: WindowData, window2: WindowData, weight: Int = 20)
+    case rightOfPref(window1: WindowData, window2: WindowData, weight: Int = 20)
+    case abovePref(window1: WindowData, window2: WindowData, weight: Int = 20)
+    case belowPref(window1: WindowData, window2: WindowData, weight: Int = 20)
 }
 
 actor LayoutSolver {
@@ -103,23 +107,49 @@ actor LayoutSolver {
             case .landscapePref(window: let w, let weight):
                 guard let width : z3.expr = await variables[w.getWindowWidthVar()],
                       let height : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
-                optimizer.add_soft(width >= height, UInt32(weight ?? 20))
+                let ratio : z3.expr = context.real_val(Int64(7), Int64(5))
+                optimizer.add_soft(width >= ratio * height, UInt32(weight))
             case .portraitPref(window: let w, let weight):
                 guard let width : z3.expr = await variables[w.getWindowWidthVar()],
                       let height : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
-                optimizer.add_soft(height >= width, UInt32(weight ?? 20))
+                let ratio : z3.expr = context.real_val(Int64(7), Int64(5))
+                optimizer.add_soft(height >= ratio * width, UInt32(weight))
             case .prefWidth(window: let w, width: let width, let weight):
                 guard let widthVar : z3.expr = await variables[w.getWindowWidthVar()] else { continue }
-                optimizer.add_soft(widthVar == context.real_val(Int32(width)), UInt32(weight ?? 20))
+                optimizer.add_soft(widthVar == context.real_val(Int32(width)), UInt32(weight))
             case .prefHeight(window: let w, height: let height, let weight):
                 guard let heightVar : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
-                optimizer.add_soft(heightVar == context.real_val(Int32(height)), UInt32(weight ?? 20))
+                optimizer.add_soft(heightVar == context.real_val(Int32(height)), UInt32(weight))
             case .prefX(window: let w, x: let x, let weight):
                 guard let xVar : z3.expr = await variables[w.getWindowXVar()] else { continue }
-                optimizer.add_soft(xVar == context.real_val(Int32(x)), UInt32(weight ?? 20))
+                optimizer.add_soft(xVar == context.real_val(Int32(x)), UInt32(weight))
             case .prefY(window: let w, y: let y, let weight):
                 guard let yVar : z3.expr = await variables[w.getWindowYVar()] else { continue }
-                optimizer.add_soft(yVar == context.real_val(Int32(y)), UInt32(weight ?? 20))
+                optimizer.add_soft(yVar == context.real_val(Int32(y)), UInt32(weight))
+            case .leftOfPref(window1: let w1, window2: let w2, let weight):
+                guard let w1X : z3.expr = await variables[w1.getWindowXVar()],
+                      let w1Width : z3.expr = await variables[w1.getWindowWidthVar()],
+                      let w2X : z3.expr = await variables[w2.getWindowXVar()] else { continue }
+                let pad : z3.expr = context.real_val(Int32(padding))
+                optimizer.add_soft(w1X + w1Width + pad <= w2X, UInt32(weight))
+            case .rightOfPref(window1: let w1, window2: let w2, let weight):
+                guard let w1X : z3.expr = await variables[w1.getWindowXVar()],
+                      let w2X : z3.expr = await variables[w2.getWindowXVar()],
+                      let w2Width : z3.expr = await variables[w2.getWindowWidthVar()] else { continue }
+                let pad : z3.expr = context.real_val(Int32(padding))
+                optimizer.add_soft(w2X + w2Width + pad <= w1X, UInt32(weight))
+            case .abovePref(window1: let w1, window2: let w2, let weight):
+                guard let w1Y : z3.expr = await variables[w1.getWindowYVar()],
+                      let w1Height : z3.expr = await variables[w1.getWindowHeightVar()],
+                      let w2Y : z3.expr = await variables[w2.getWindowYVar()] else { continue }
+                let pad : z3.expr = context.real_val(Int32(padding))
+                optimizer.add_soft(w1Y + w1Height + pad <= w2Y, UInt32(weight))
+            case .belowPref(window1: let w1, window2: let w2, let weight):
+                guard let w1Y : z3.expr = await variables[w1.getWindowYVar()],
+                      let w2Y : z3.expr = await variables[w2.getWindowYVar()],
+                      let w2Height : z3.expr = await variables[w2.getWindowHeightVar()] else { continue }
+                let pad : z3.expr = context.real_val(Int32(padding))
+                optimizer.add_soft(w2Y + w2Height + pad <= w1Y, UInt32(weight))
             }
         }
         
