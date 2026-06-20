@@ -181,6 +181,7 @@ class WindowManager {
         let windowDataList : [WindowData] = windows.map { WindowData(element: $0) }
         guard let (xMax, yMax) = getScreenSize() else {return false}
         let layoutSolver : LayoutSolver = LayoutSolver()
+        
         for w in windowDataList {
             if (WindowManager.getWindowTitle(for: w.element)! == "Tessera") {continue}
             await layoutSolver.addWindow(window: w)
@@ -189,9 +190,8 @@ class WindowManager {
             await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: minHeight))
             await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
             await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
-            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax - 10))
+            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax))
             await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax - 20))
-
         }
         
         for (n1, w1) in windowDataList.enumerated() {
@@ -201,6 +201,15 @@ class WindowManager {
                 if (n1 < n2) {
                     await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
                 }
+            }
+        }
+        
+        // Temporary Constraint
+        for w in windowDataList {
+            guard let title : String = getWindowTitle(for: w.element) else { continue }
+            print (title)
+            if title.lowercased().contains("mail") {
+                await layoutSolver.addConstraints(constraint: .portraitPref(window: w))
             }
         }
 

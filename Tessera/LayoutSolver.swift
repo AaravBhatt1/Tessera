@@ -18,6 +18,12 @@ enum LayoutConstraint {
     case minimumY(window : WindowData, yMin : Int)
     case maximumY(window : WindowData, yMax : Int)
     case noOverlap(window1 : WindowData, window2 : WindowData)
+    case landscapePref(window: WindowData, weight: Int? = nil)
+    case portraitPref(window: WindowData, weight: Int? = nil)
+    case prefWidth(window: WindowData, width: Int, weight: Int? = nil)
+    case prefHeight(window: WindowData, height: Int, weight: Int? = nil)
+    case prefX(window: WindowData, x: Int, weight: Int? = nil)
+    case prefY(window: WindowData, y: Int, weight: Int? = nil)
 }
 
 actor LayoutSolver {
@@ -48,28 +54,27 @@ actor LayoutSolver {
             variables.updateValue(context.real_const(key), forKey: key)
         }
 
-        // let tactic : z3.tactic = z3.tactic.init(&context, "qfnra-nlsat")
         var optimizer : z3.optimize = z3.optimize(&context)
-        //optimizer.set("timeout", UInt32(2000))
         var params : z3.params = z3.params(&context)
         params.set("timeout", UInt32(2000))
 
+        // Handle user constraints
         for constraint in constraints {
             switch constraint {
             case .minimumWidth(window: let window, wMin: let wMin):
-                guard let widthVar : z3.expr = await variables[window.getWindowWidthVar()] else { return false }
+                guard let widthVar : z3.expr = await variables[window.getWindowWidthVar()] else { continue }
                 optimizer.add(widthVar >= context.real_val(Int32(wMin)))
             case .maximumWidth(window: let window, wMax: let wMax):
-                guard let widthVar : z3.expr = await variables[window.getWindowWidthVar()] else { return false }
+                guard let widthVar : z3.expr = await variables[window.getWindowWidthVar()] else { continue }
                 optimizer.add(widthVar <= context.real_val(Int32(wMax)))
             case .minimumHeight(window: let window, hMin: let hMin):
-                guard let heightVar : z3.expr = await variables[window.getWindowHeightVar()] else { return false }
+                guard let heightVar : z3.expr = await variables[window.getWindowHeightVar()] else { continue }
                 optimizer.add(heightVar >= context.real_val(Int32(hMin)))
             case .maximumHeight(window: let window, hMax: let hMax):
-                guard let heightVar : z3.expr = await variables[window.getWindowHeightVar()] else { return false }
+                guard let heightVar : z3.expr = await variables[window.getWindowHeightVar()] else { continue }
                 optimizer.add(heightVar <= context.real_val(Int32(hMax)))
             case .minimumX(window: let window, xMin: let xMin):
-                guard let xVar : z3.expr = await variables[window.getWindowXVar()] else { return false }
+                guard let xVar : z3.expr = await variables[window.getWindowXVar()] else { continue }
                 optimizer.add(xVar >= context.real_val(Int32(xMin + padding)))
             case .maximumX(window: let window, xMax: let xMax):
                 guard let xVar : z3.expr = await variables[window.getWindowXVar()],
@@ -77,7 +82,7 @@ actor LayoutSolver {
                     else { return false }
                 optimizer.add(xVar + widthVar <= context.real_val(Int32(xMax - padding)))
             case .minimumY(window: let window, yMin: let yMin):
-                guard let yVar : z3.expr = await variables[window.getWindowYVar()] else { return false }
+                guard let yVar : z3.expr = await variables[window.getWindowYVar()] else { continue }
                 optimizer.add(yVar >= context.real_val(Int32(yMin + padding)))
             case .maximumY(window: let window, yMax: let yMax):
                 guard let yVar : z3.expr = await variables[window.getWindowYVar()],
@@ -92,27 +97,62 @@ actor LayoutSolver {
                       let w2X : z3.expr = await variables[w2.getWindowXVar()],
                       let w2Y : z3.expr = await variables[w2.getWindowYVar()],
                       let w2Width : z3.expr = await variables[w2.getWindowWidthVar()],
-                      let w2Height : z3.expr = await variables[w2.getWindowHeightVar()] else { return false }
+                      let w2Height : z3.expr = await variables[w2.getWindowHeightVar()] else { continue }
                 let pad : z3.expr = context.real_val(Int32(padding))
-
                 optimizer.add((w1X + w1Width + pad <= w2X) || (w2X + w2Width + pad <= w1X) || (w1Y + w1Height + pad + 20 <= w2Y) || (w2Y + w2Height + pad + 20 <= w1Y))
+            case .landscapePref(window: let w, let weight):
+                guard let width : z3.expr = await variables[w.getWindowWidthVar()],
+                      let height : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
+                optimizer.add_soft(width >= height, UInt32(weight ?? 20))
+            case .portraitPref(window: let w, let weight):
+                guard let width : z3.expr = await variables[w.getWindowWidthVar()],
+                      let height : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
+                optimizer.add_soft(height >= width, UInt32(weight ?? 20))
+            case .prefWidth(window: let w, width: let width, let weight):
+                guard let widthVar : z3.expr = await variables[w.getWindowWidthVar()] else { continue }
+                optimizer.add_soft(widthVar == context.real_val(Int32(width)), UInt32(weight ?? 20))
+            case .prefHeight(window: let w, height: let height, let weight):
+                guard let heightVar : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
+                optimizer.add_soft(heightVar == context.real_val(Int32(height)), UInt32(weight ?? 20))
+            case .prefX(window: let w, x: let x, let weight):
+                guard let xVar : z3.expr = await variables[w.getWindowXVar()] else { continue }
+                optimizer.add_soft(xVar == context.real_val(Int32(x)), UInt32(weight ?? 20))
+            case .prefY(window: let w, y: let y, let weight):
+                guard let yVar : z3.expr = await variables[w.getWindowYVar()] else { continue }
+                optimizer.add_soft(yVar == context.real_val(Int32(y)), UInt32(weight ?? 20))
             }
         }
         
-        var perimeter : z3.expr = context.real_val(Int32(0))
+        // By default, we prefer square-ish windows
+        for w in windows {
+            guard let width : z3.expr = await variables[w.getWindowWidthVar()],
+                  let height : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
+            let ratio : z3.expr = context.real_val(Int32(2))
+            optimizer.add_soft((ratio * width >= height) && (ratio * height >= width), 10)
+        }
+        
+        // Maximize perimiter and minimize spread
+        var totalPerimeter : z3.expr = context.real_val(Int32(0))
         for w in windows {
             let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!
             let wHeight : z3.expr = await variables[w.getWindowHeightVar()]!
-            perimeter = perimeter + wWidth + wHeight
+            totalPerimeter = totalPerimeter + wWidth + wHeight
         }
         
+        let numWindows : z3.expr = context.real_val(Int32(windows.count))
+        var totalSpread : z3.expr = context.real_val(Int32(0))
         for w in windows {
             let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!
             let wHeight : z3.expr = await variables[w.getWindowHeightVar()]!
-            optimizer.add_soft(wWidth == wHeight, 20)
+            // Use this to calculate spread rather than using disjunctions
+            let differenceVar : z3.expr = context.real_const("\(await w.hashValue)Spread")
+            optimizer.add(differenceVar >= numWindows * wWidth + numWindows * wHeight - totalPerimeter)
+            optimizer.add(differenceVar >= totalPerimeter - numWindows * wWidth - numWindows * wHeight)
+            totalSpread = totalSpread + differenceVar
         }
         
-        optimizer.maximize(perimeter)
+        let varianceRatio : z3.expr = context.real_val(Int32(3))
+        optimizer.maximize(varianceRatio * totalPerimeter - totalSpread)
         
 
         if optimizer.check() == z3.unsat {
