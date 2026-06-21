@@ -8,9 +8,10 @@
 import AppKit
 import Carbon.HIToolbox
 
-class AppDelegate: NSObject, NSApplicationDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var hotKeyRef: EventHotKeyRef?
+    private var focusedWindowItem: NSMenuItem?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -18,17 +19,34 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Tessera")
 
+        let focusedItem = NSMenuItem(title: "No focused window", action: nil, keyEquivalent: "")
+        focusedItem.isEnabled = false
+        focusedWindowItem = focusedItem
+
         let declutterItem = NSMenuItem(title: "Declutter", action: #selector(declutter), keyEquivalent: " ")
         declutterItem.keyEquivalentModifierMask = [.command, .shift]
         declutterItem.target = self
 
         let menu = NSMenu()
+        menu.delegate = self
+        menu.addItem(focusedItem)
+        menu.addItem(NSMenuItem.separator())
         menu.addItem(declutterItem)
         item.menu = menu
 
         statusItem = item
 
         registerDeclutterHotKey()
+    }
+
+    func menuWillOpen(_ menu: NSMenu) {
+        guard let window : AXUIElement = WindowManager.getCurrentFocusedWindow() else {
+            focusedWindowItem?.title = "No focused window"
+            return
+        }
+        let app : String = WindowManager.getWindowApp(for: window) ?? "Unknown app"
+        let title : String = WindowManager.getWindowDesc(for: window) ?? "Untitled"
+        focusedWindowItem?.title = "\(app) — \(title)"
     }
 
     private func registerDeclutterHotKey() {
