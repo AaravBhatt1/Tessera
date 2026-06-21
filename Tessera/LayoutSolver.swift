@@ -162,6 +162,7 @@ actor LayoutSolver {
         }
         
         // Maximize perimiter and minimize spread
+        // TODO: Minimize distance from center of window to center of screen
         var totalPerimeter : z3.expr = context.real_val(Int32(0))
         for w in windows {
             let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!

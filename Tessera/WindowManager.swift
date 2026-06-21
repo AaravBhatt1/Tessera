@@ -34,7 +34,7 @@ class WindowManager {
             for window in appWindows {
                 
                 // Skips non-existant windows
-                if getWindowTitle(for: window) == nil {
+                if getWindowDesc(for: window) == nil {
                     continue
                 }
                 
@@ -51,8 +51,21 @@ class WindowManager {
         return output
     }
     
+    // Returns the app name of the window
+    static func getWindowApp(for window: AXUIElement) -> String? {
+        var pid : pid_t = 0
+        let pidResult = AXUIElementGetPid(window, &pid)
+        guard pidResult == .success else {
+            return nil
+        }
+        guard let app : NSRunningApplication = NSRunningApplication(processIdentifier: pid) else {
+            return nil
+        }
+        return app.bundleIdentifier?.components(separatedBy: ".").last?.lowercased()
+    }
+    
     // Returns the title of the window
-    static func getWindowTitle(for window: AXUIElement) -> String? {
+    static func getWindowDesc(for window: AXUIElement) -> String? {
         var titleRef : CFTypeRef?
         let titleResult : AXError = AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleRef)
         guard titleResult == .success, let title = titleRef as? String else {
@@ -183,7 +196,6 @@ class WindowManager {
         let layoutSolver : LayoutSolver = LayoutSolver()
         
         for w in windowDataList {
-            if (WindowManager.getWindowTitle(for: w.element)! == "Tessera") {continue}
             await layoutSolver.addWindow(window: w)
             let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: w.element) ?? (100, 100)
             await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: minWidth))
@@ -195,9 +207,7 @@ class WindowManager {
         }
         
         for (n1, w1) in windowDataList.enumerated() {
-            if (WindowManager.getWindowTitle(for: w1.element)! == "Tessera") {continue}
             for (n2, w2) in windowDataList.enumerated() {
-                if (WindowManager.getWindowTitle(for: w2.element)! == "Tessera") {continue}
                 if (n1 < n2) {
                     await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
                 }
