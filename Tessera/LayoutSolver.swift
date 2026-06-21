@@ -22,6 +22,8 @@ enum LayoutConstraint {
     case portraitPref(window: WindowData, weight: Int = 30)
     case prefWidth(window: WindowData, width: Int, weight: Int = 20)
     case prefHeight(window: WindowData, height: Int, weight: Int = 20)
+    case minimumWidthPref(window: WindowData, wMin: Int, weight: Int = 20)
+    case minimumHeightPref(window: WindowData, hMin: Int, weight: Int = 20)
     case prefX(window: WindowData, x: Int, weight: Int = 20)
     case prefY(window: WindowData, y: Int, weight: Int = 20)
     case leftOfPref(window1: WindowData, window2: WindowData, weight: Int = 20)
@@ -120,6 +122,12 @@ actor LayoutSolver {
             case .prefHeight(window: let w, height: let height, let weight):
                 guard let heightVar : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
                 optimizer.add_soft(heightVar == context.real_val(Int32(height)), UInt32(weight))
+            case .minimumWidthPref(window: let w, wMin: let wMin, let weight):
+                guard let widthVar : z3.expr = await variables[w.getWindowWidthVar()] else { continue }
+                optimizer.add_soft(widthVar >= context.real_val(Int32(wMin)), UInt32(weight))
+            case .minimumHeightPref(window: let w, hMin: let hMin, let weight):
+                guard let heightVar : z3.expr = await variables[w.getWindowHeightVar()] else { continue }
+                optimizer.add_soft(heightVar >= context.real_val(Int32(hMin)), UInt32(weight))
             case .prefX(window: let w, x: let x, let weight):
                 guard let xVar : z3.expr = await variables[w.getWindowXVar()] else { continue }
                 optimizer.add_soft(xVar == context.real_val(Int32(x)), UInt32(weight))
@@ -162,7 +170,6 @@ actor LayoutSolver {
         }
         
         // Maximize perimiter and minimize spread
-        // TODO: Minimize distance from center of window to center of screen
         var totalPerimeter : z3.expr = context.real_val(Int32(0))
         for w in windows {
             let wWidth : z3.expr = await variables[w.getWindowWidthVar()]!

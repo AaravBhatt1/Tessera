@@ -71,7 +71,7 @@ class WindowManager {
         guard titleResult == .success, let title = titleRef as? String else {
             return nil
         }
-        return title
+        return title.lowercased()
     }
     
     // TODO: Do I need this?
@@ -212,6 +212,36 @@ class WindowManager {
                     await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
                 }
             }
+        }
+        
+        // Example constraints
+        for w1 in windowDataList {
+            if getWindowApp(for: w1.element) != "ghostty" {continue}
+            for w2 in windowDataList {
+                if getWindowApp(for: w2.element) != "safari" {continue}
+                guard let wDesc : String = getWindowDesc(for: w2.element) else {continue}
+                if wDesc.contains("typst") {
+                    await layoutSolver.addConstraints(constraint: .leftOfPref(window1: w1, window2: w2))
+                    await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w1, wMin: 900))
+                    await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w1, hMin: 900))
+                }
+            }
+        }
+        
+        for w in windowDataList {
+            if getWindowApp(for: w.element) != "safari" {continue}
+            guard let wDesc : String = getWindowDesc(for: w.element) else {continue}
+            if wDesc.contains("netflix") {
+                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 1300))
+                await layoutSolver.addConstraints(constraint: .landscapePref(window: w))
+            }
+
+        }
+
+        if let focusedWindow : AXUIElement = getCurrentFocusedWindow(),
+           let w : WindowData = windowDataList.first(where: { $0 == WindowData(element: focusedWindow) }) {
+            await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: xMax * 2 / 3))
+            await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: yMax * 2 / 3))
         }
 
         let result : Bool = await layoutSolver.solve()
