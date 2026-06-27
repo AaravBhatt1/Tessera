@@ -12,7 +12,6 @@ import AppKit
 class WindowManager {
     
     // This function returns a list of pairs of windows on the screen and their associated application ID
-    // TODO: Move getting application ID to a seperate function
     static func getAllWindows() -> [AXUIElement] {
         var output : [AXUIElement] = []
         let runningApps : [NSRunningApplication] = NSWorkspace.shared.runningApplications
@@ -93,7 +92,6 @@ class WindowManager {
     }
     
     
-    // TODO: Do I need this?
     // Returns the width and height of a window
     static func getWindowSize(for window: AXUIElement) -> (Int, Int)? {
         var sizeRef : CFTypeRef?
@@ -206,6 +204,7 @@ class WindowManager {
             await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax - 20))
         }
         
+        // TODO: Add option for floating windows (exclude from this)
         for (n1, w1) in windowDataList.enumerated() {
             for (n2, w2) in windowDataList.enumerated() {
                 if (n1 < n2) {
@@ -215,6 +214,7 @@ class WindowManager {
         }
         
         // Example constraints
+        // Typst IDE is to the left of Typst Preview
         for w1 in windowDataList {
             if getWindowApp(for: w1.element)?.lowercased() != "ghostty" {continue}
             guard let w1Desc : String = getWindowDesc(for: w1.element)?.lowercased(), w1Desc.contains("nvim") else {continue}
@@ -230,22 +230,31 @@ class WindowManager {
             }
         }
 
+        // Netflix window is big and landscape
         for w in windowDataList {
             if getWindowApp(for: w.element)?.lowercased() != "safari" {continue}
             guard let wDesc : String = getWindowDesc(for: w.element)?.lowercased() else {continue}
-            if wDesc.contains("netflix") {
-                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 1300, weight: 80))
+            if wDesc.contains("netflix") || wDesc.contains("youtube") {
+                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 1000, weight: 80))
+                await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: 1000, weight: 80))
                 await layoutSolver.addConstraints(constraint: .landscapePref(window: w, weight: 80))
             }
-
+        }
+        
+        // Terminal window has a reasonable size
+        for w in windowDataList {
+            if getWindowApp(for: w.element)?.lowercased() != "ghostty" {continue}
+            await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 300, weight: 80))
+            await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: 400, weight: 80))
+            
         }
 
         // Focused window is bigger
-        if let focusedWindow : AXUIElement = getCurrentFocusedWindow(),
-           let w : WindowData = windowDataList.first(where: { $0 == WindowData(element: focusedWindow) }) {
-            await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: xMax * 2 / 3, weight: 4))
-            await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: yMax * 2 / 3, weight: 4))
-        }
+        //if let focusedWindow : AXUIElement = getCurrentFocusedWindow(),
+        //   let w : WindowData = windowDataList.first(where: { $0 == WindowData(element: focusedWindow) }) {
+        //    await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: xMax * 2 / 3, weight: 4))
+        //    await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: yMax * 2 / 3, weight: 4))
+        //}
 
         let result : Bool = await layoutSolver.solve()
         return result

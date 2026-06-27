@@ -1,10 +1,7 @@
 # Notes
 
-- Use a domain specific language to define 'rules;
-    - This should be like prolog, e.g.
-        - when hasTitle(window, "VSCode"), tag(window, IDE), tag(window, big), minimumWidth(window, 300)
-        - when tag(window, IDE) and (tag(window, big) or isFocused(window)), preferredAspectRatio(portrait)
-    - Note: Convert AST such that every rule has one condition with a bunch of ands, and one effect
-    - Evaluate rules with tagging effects first, and then evaluate rules with constraint effects
-- Predictive tagging? Use app name and description to infer tag based on how users manually tag things
+- Use toml file to define rules
+    - Use syntax where we select windows first and then apply effects
+    - Evaluate rules with constraint effects after doing all the tagging
+- Add tagging - may need to do a topo-sort to track dependancies in the future
         

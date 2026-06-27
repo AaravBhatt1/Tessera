@@ -1,0 +1,15 @@
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# LLVM profiling
+*.profraw
+*.profdata
+
+# macOS
+.DS_Store
+
+# Claude Code
+CLAUDE.md

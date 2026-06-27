@@ -199,6 +199,7 @@ actor LayoutSolver {
 
         let model : z3.model = optimizer.get_model()
 
+        // TODO: Move this to WindowManager?
         for window in windows {
             let width : Int? = await variables[window.getWindowWidthVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
             let height : Int? = await variables[window.getWindowHeightVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
@@ -206,7 +207,6 @@ actor LayoutSolver {
             let y : Int? = await variables[window.getWindowYVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
 
             if let w : Int = width, let h : Int = height {
-
                 guard await WindowManager.setWindowSize(for: window.element, to: (w, h)) else {
                     return false
                 }
@@ -225,8 +225,8 @@ actor LayoutSolver {
             let x : Int? = await variables[window.getWindowXVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
             let y : Int? = await variables[window.getWindowYVar()].map { (expr : z3.expr) -> Int in Int(model.eval(expr).as_double().rounded()) }
 
+            
             if let w : Int = width, let h : Int = height {
-
                 guard await WindowManager.setWindowSize(for: window.element, to: (w, h)) else {
                     return false
                 }

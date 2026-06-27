@@ -46,7 +46,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         let app : String = WindowManager.getWindowApp(for: window) ?? "Unknown app"
         let title : String = WindowManager.getWindowDesc(for: window) ?? "Untitled"
-        focusedWindowItem?.title = "\(app) — \(title)"
+        let full : String = "\(app) — \(title)"
+        // Caps the maximum length to 50 (to fix issues with youtube videos)
+        let maxLength = 50
+        focusedWindowItem?.title = full.count > maxLength
+            ? String(full.prefix(maxLength)) + "..."
+            : full
     }
 
     private func registerDeclutterHotKey() {
@@ -59,7 +64,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         InstallEventHandler(GetApplicationEventTarget(), handler, 1, &eventType, Unmanaged.passUnretained(self).toOpaque(), nil)
 
-        // Arbitrary signature for Carbon
         let hotKeyID = EventHotKeyID(signature: 0x54737341, id: 1)
         // Command shift space shortcut
         RegisterEventHotKey(UInt32(kVK_Space), UInt32(cmdKey | shiftKey), hotKeyID, GetApplicationEventTarget(), 0, &hotKeyRef)
