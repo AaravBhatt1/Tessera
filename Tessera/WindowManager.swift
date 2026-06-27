@@ -188,76 +188,84 @@ class WindowManager {
 
     // Update layout
     static func optimizeLayout() async -> Bool {
-        let windows : [AXUIElement] = getAllWindows()
-        let windowDataList : [WindowData] = windows.map { WindowData(element: $0) }
-        guard let (xMax, yMax) = getScreenSize() else {return false}
+        let elements : [AXUIElement] = getAllWindows()
+        guard let (xMax, yMax) = getScreenSize() else { return false }
         let layoutSolver : LayoutSolver = LayoutSolver()
-        
-        for w in windowDataList {
-            await layoutSolver.addWindow(window: w)
-            let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: w.element) ?? (100, 100)
-            await layoutSolver.addConstraints(constraint: .minimumWidth(window: w, wMin: minWidth))
-            await layoutSolver.addConstraints(constraint: .minimumHeight(window: w, hMin: minHeight))
-            await layoutSolver.addConstraints(constraint: .minimumX(window: w, xMin: 0))
-            await layoutSolver.addConstraints(constraint: .minimumY(window: w, yMin: 0))
-            await layoutSolver.addConstraints(constraint: .maximumX(window: w, xMax: xMax))
-            await layoutSolver.addConstraints(constraint: .maximumY(window: w, yMax: yMax - 20))
+
+        var windows : [LayoutWindow] = []
+        for element in elements {
+            let app : String = getWindowApp(for: element) ?? "Unknown"
+            let title : String = getWindowDesc(for: element) ?? ""
+            let w : LayoutWindow = await layoutSolver.addWindow(element: element, app: app, title: title)
+            let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
+            await layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
+            await layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
+            await layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
+            await layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
+            await layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
+            await layoutSolver.addConstraint(.maximumY(window: w, yMax: yMax - 20))
+            windows.append(w)
         }
-        
+
         // TODO: Add option for floating windows (exclude from this)
-        for (n1, w1) in windowDataList.enumerated() {
-            for (n2, w2) in windowDataList.enumerated() {
-                if (n1 < n2) {
-                    await layoutSolver.addConstraints(constraint: .noOverlap(window1: w1, window2: w2))
+        for (n1, w1) in windows.enumerated() {
+            for (n2, w2) in windows.enumerated() {
+                if n1 < n2 {
+                    await layoutSolver.addConstraint(.noOverlap(window1: w1, window2: w2))
                 }
             }
         }
-        
+
         // Example constraints
         // Typst IDE is to the left of Typst Preview
-        for w1 in windowDataList {
-            if getWindowApp(for: w1.element)?.lowercased() != "ghostty" {continue}
-            guard let w1Desc : String = getWindowDesc(for: w1.element)?.lowercased(), w1Desc.contains("nvim") else {continue}
-            for w2 in windowDataList {
-                if getWindowApp(for: w2.element)?.lowercased() != "safari" {continue}
-                guard let w2Desc : String = getWindowDesc(for: w2.element)?.lowercased(), w2Desc.contains("typst")  else {continue}
-                await layoutSolver.addConstraints(constraint: .leftOfPref(window1: w1, window2: w2))
-                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w1, wMin: 900, weight: 40))
-                await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w1, hMin: 1000, weight: 40))
-                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w2, wMin: 600, weight: 30))
-                await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w2, hMin: 700, weight: 30))
-                
+        for w1 in windows {
+            guard w1.app.lowercased() == "ghostty", w1.title.lowercased().contains("nvim") else { continue }
+            for w2 in windows {
+                guard w2.app.lowercased() == "safari", w2.title.lowercased().contains("typst") else { continue }
+                await layoutSolver.addConstraint(.leftOfPref(window1: w1, window2: w2))
+                await layoutSolver.addConstraint(.minimumWidthPref(window: w1, wMin: 900, weight: 40))
+                await layoutSolver.addConstraint(.minimumHeightPref(window: w1, hMin: 1000, weight: 40))
+                await layoutSolver.addConstraint(.minimumWidthPref(window: w2, wMin: 600, weight: 30))
+                await layoutSolver.addConstraint(.minimumHeightPref(window: w2, hMin: 700, weight: 30))
             }
         }
 
-        // Netflix window is big and landscape
-        for w in windowDataList {
-            if getWindowApp(for: w.element)?.lowercased() != "safari" {continue}
-            guard let wDesc : String = getWindowDesc(for: w.element)?.lowercased() else {continue}
-            if wDesc.contains("netflix") || wDesc.contains("youtube") {
-                await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 1000, weight: 80))
-                await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: 1000, weight: 80))
-                await layoutSolver.addConstraints(constraint: .landscapePref(window: w, weight: 80))
+        // Netflix/YouTube window is big and landscape
+        for w in windows {
+            guard w.app.lowercased() == "safari" else { continue }
+            let t = w.title.lowercased()
+            if t.contains("netflix") || t.contains("youtube") {
+                await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: 1000, weight: 80))
+                await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: 1000, weight: 80))
+                await layoutSolver.addConstraint(.landscapePref(window: w, weight: 80))
             }
         }
-        
+
         // Terminal window has a reasonable size
-        for w in windowDataList {
-            if getWindowApp(for: w.element)?.lowercased() != "ghostty" {continue}
-            await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: 300, weight: 80))
-            await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: 400, weight: 80))
-            
+        for w in windows {
+            guard w.app.lowercased() == "ghostty" else { continue }
+            await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: 300, weight: 80))
+            await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: 400, weight: 80))
         }
 
         // Focused window is bigger
         //if let focusedWindow : AXUIElement = getCurrentFocusedWindow(),
-        //   let w : WindowData = windowDataList.first(where: { $0 == WindowData(element: focusedWindow) }) {
-        //    await layoutSolver.addConstraints(constraint: .minimumWidthPref(window: w, wMin: xMax * 2 / 3, weight: 4))
-        //    await layoutSolver.addConstraints(constraint: .minimumHeightPref(window: w, hMin: yMax * 2 / 3, weight: 4))
+        //   let w : LayoutWindow = windows.first(where: { CFEqual($0.element, focusedWindow) }) {
+        //    await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: xMax * 2 / 3, weight: 4))
+        //    await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: yMax * 2 / 3, weight: 4))
         //}
 
-        let result : Bool = await layoutSolver.solve()
-        return result
+        guard let layout : Layout = await layoutSolver.solve() else { return false }
+
+        // Apply layout twice to reduce the chance that changes don't properly take place
+        for _ in 0..<2 {
+            for (window, geometry) in layout.windows {
+                guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
+                guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
+            }
+        }
+
+        return true
     }
     
     // Returns the current focused window
