@@ -18,19 +18,6 @@ enum LayoutConstraint {
     case maximumX(window : LayoutWindow, xMax : Int)
     case minimumY(window : LayoutWindow, yMin : Int)
     case maximumY(window : LayoutWindow, yMax : Int)
-    case noOverlap(window1 : LayoutWindow, window2 : LayoutWindow, weight : Int = 1000)
-    case landscapePref(window: LayoutWindow, weight: Int = 30)
-    case portraitPref(window: LayoutWindow, weight: Int = 30)
-    case prefWidth(window: LayoutWindow, width: Int, weight: Int = 20)
-    case prefHeight(window: LayoutWindow, height: Int, weight: Int = 20)
-    case minimumWidthPref(window: LayoutWindow, wMin: Int, weight: Int = 20)
-    case minimumHeightPref(window: LayoutWindow, hMin: Int, weight: Int = 20)
-    case prefX(window: LayoutWindow, x: Int, weight: Int = 20)
-    case prefY(window: LayoutWindow, y: Int, weight: Int = 20)
-    case leftOfPref(window1: LayoutWindow, window2: LayoutWindow, weight: Int = 20)
-    case rightOfPref(window1: LayoutWindow, window2: LayoutWindow, weight: Int = 20)
-    case abovePref(window1: LayoutWindow, window2: LayoutWindow, weight: Int = 20)
-    case belowPref(window1: LayoutWindow, window2: LayoutWindow, weight: Int = 20)
 }
 
 struct Layout {
@@ -43,13 +30,13 @@ struct Layout {
     let windows : [LayoutWindow : WindowGeometry]
 }
 
-actor LayoutSolver {
-
-    var padding : Int = 15
+@MainActor class LayoutSolver {
 
     private var context : z3.context = z3.context()
+    private var constants : [Int : z3.expr] = [:]
     private var windows : [LayoutWindow] = []
     private var constraints : [LayoutConstraint] = []
+    private var softConstraints : [(expr : z3.expr, weight : Int)] = []
 
     func addWindow(element : AXUIElement, app : String, title : String) -> LayoutWindow {
         let hash = CFHash(element)
@@ -70,10 +57,32 @@ actor LayoutSolver {
         constraints.append(c)
     }
 
+    func addSoftConstraint(_ expr : z3.expr, weight : Int) {
+        softConstraints.append((expr: expr, weight: weight))
+    }
+
+    var allConstants : [Int : z3.expr] { constants }
+
+    @discardableResult
+    func makeConstant(_ n : Int) -> z3.expr {
+        if let cached = constants[n] { return cached }
+        let expr = context.real_val(Int32(n))
+        constants[n] = expr
+        return expr
+    }
+
+    func makeRational(numerator : Int64, denominator : Int64) -> z3.expr {
+        return context.real_val(numerator, denominator)
+    }
+
     func solve() async -> Layout? {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
         params.set("timeout", UInt32(2000))
+
+        for (expr, weight) in softConstraints {
+            optimizer.add_soft(expr, UInt32(weight))
+        }
 
         for constraint in constraints {
             switch constraint {
@@ -86,52 +95,36 @@ actor LayoutSolver {
             case .maximumHeight(window: let w, hMax: let hMax):
                 optimizer.add(w.height <= context.real_val(Int32(hMax)))
             case .minimumX(window: let w, xMin: let xMin):
-                optimizer.add(w.x >= context.real_val(Int32(xMin + padding)))
+                optimizer.add(w.x >= makeConstant(xMin + 15))
             case .maximumX(window: let w, xMax: let xMax):
-                optimizer.add(w.x + w.width <= context.real_val(Int32(xMax - padding)))
+                optimizer.add(w.x + w.width <= makeConstant(xMax - 15))
             case .minimumY(window: let w, yMin: let yMin):
-                optimizer.add(w.y >= context.real_val(Int32(yMin + padding)))
+                optimizer.add(w.y >= makeConstant(yMin + 15))
             case .maximumY(window: let w, yMax: let yMax):
-                optimizer.add(w.y + w.height <= context.real_val(Int32(yMax - padding)))
-            case .noOverlap(window1: let w1, window2: let w2, let weight):
-                let pad : z3.expr = context.real_val(Int32(padding))
-                optimizer.add_soft((w1.x + w1.width + pad <= w2.x) || (w2.x + w2.width + pad <= w1.x) || (w1.y + w1.height + pad + 20 <= w2.y) || (w2.y + w2.height + pad + 20 <= w1.y), UInt32(weight))
-            case .landscapePref(window: let w, let weight):
-                let ratio : z3.expr = context.real_val(Int64(7), Int64(5))
-                optimizer.add_soft(w.width >= ratio * w.height, UInt32(weight))
-            case .portraitPref(window: let w, let weight):
-                let ratio : z3.expr = context.real_val(Int64(7), Int64(5))
-                optimizer.add_soft(w.height >= ratio * w.width, UInt32(weight))
-            case .prefWidth(window: let w, width: let width, let weight):
-                optimizer.add_soft(w.width == context.real_val(Int32(width)), UInt32(weight))
-            case .prefHeight(window: let w, height: let height, let weight):
-                optimizer.add_soft(w.height == context.real_val(Int32(height)), UInt32(weight))
-            case .minimumWidthPref(window: let w, wMin: let wMin, let weight):
-                optimizer.add_soft(w.width >= context.real_val(Int32(wMin)), UInt32(weight))
-            case .minimumHeightPref(window: let w, hMin: let hMin, let weight):
-                optimizer.add_soft(w.height >= context.real_val(Int32(hMin)), UInt32(weight))
-            case .prefX(window: let w, x: let x, let weight):
-                optimizer.add_soft(w.x == context.real_val(Int32(x)), UInt32(weight))
-            case .prefY(window: let w, y: let y, let weight):
-                optimizer.add_soft(w.y == context.real_val(Int32(y)), UInt32(weight))
-            case .leftOfPref(window1: let w1, window2: let w2, let weight):
-                let pad : z3.expr = context.real_val(Int32(padding))
-                optimizer.add_soft(w1.x + w1.width + pad <= w2.x, UInt32(weight))
-            case .rightOfPref(window1: let w1, window2: let w2, let weight):
-                let pad : z3.expr = context.real_val(Int32(padding))
-                optimizer.add_soft(w2.x + w2.width + pad <= w1.x, UInt32(weight))
-            case .abovePref(window1: let w1, window2: let w2, let weight):
-                let pad : z3.expr = context.real_val(Int32(padding))
-                optimizer.add_soft(w1.y + w1.height + pad <= w2.y, UInt32(weight))
-            case .belowPref(window1: let w1, window2: let w2, let weight):
-                let pad : z3.expr = context.real_val(Int32(padding))
-                optimizer.add_soft(w2.y + w2.height + pad <= w1.y, UInt32(weight))
+                optimizer.add(w.y + w.height <= makeConstant(yMax - 15))
+            }
+        }
+
+        // TODO: Keep track of windows to exclude from no-overlap (e.g. floating windows)
+        let xPad = makeConstant(15)
+        let yPad = makeConstant(35)
+        for i in 0..<windows.count {
+            for j in (i + 1)..<windows.count {
+                let w1 = windows[i]
+                let w2 = windows[j]
+                optimizer.add_soft(
+                    (w1.x + w1.width + xPad <= w2.x) ||
+                    (w2.x + w2.width + xPad <= w1.x) ||
+                    (w1.y + w1.height + yPad <= w2.y) ||
+                    (w2.y + w2.height + yPad <= w1.y),
+                    1000
+                )
             }
         }
 
         // By default, we prefer square-ish windows
         for w in windows {
-            let ratio : z3.expr = context.real_val(Int32(2))
+            let ratio : z3.expr = makeConstant(2)
             optimizer.add_soft((ratio * w.width >= w.height) && (ratio * w.height >= w.width), 10)
         }
 
@@ -150,7 +143,7 @@ actor LayoutSolver {
             totalSpread = totalSpread + differenceVar
         }
 
-        let varianceRatio : z3.expr = context.real_val(Int32(3))
+        let varianceRatio : z3.expr = context.real_val(Int32(5))
         optimizer.maximize(varianceRatio * totalPerimeter - totalSpread)
 
         if optimizer.check() == z3.unsat {

@@ -191,69 +191,70 @@ class WindowManager {
         let elements : [AXUIElement] = getAllWindows()
         guard let (xMax, yMax) = getScreenSize() else { return false }
         let layoutSolver : LayoutSolver = LayoutSolver()
+        layoutSolver.makeConstant(15)   // padding
+        layoutSolver.makeConstant(35)   // padding for y (accounts for menu bar height)
+        layoutSolver.makeConstant(5)    // landscape/portrait ratio denominator
+        layoutSolver.makeConstant(7)    // landscape/portrait ratio numerator
+        layoutSolver.makeConstant(300)  // minimum terminal width
+        layoutSolver.makeConstant(400)  // minimum terminal height
+        layoutSolver.makeConstant(600)  // minimum preview width
+        layoutSolver.makeConstant(700)  // minimum preview height
+        layoutSolver.makeConstant(900)  // minimum editor width
+        layoutSolver.makeConstant(1000) // minimum media/editor height
 
         var windows : [LayoutWindow] = []
         for element in elements {
             let app : String = getWindowApp(for: element) ?? "Unknown"
             let title : String = getWindowDesc(for: element) ?? ""
-            let w : LayoutWindow = await layoutSolver.addWindow(element: element, app: app, title: title)
+            let w : LayoutWindow = layoutSolver.addWindow(element: element, app: app, title: title)
             let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
-            await layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
-            await layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
-            await layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
-            await layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
-            await layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
-            await layoutSolver.addConstraint(.maximumY(window: w, yMax: yMax - 20))
+            layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
+            layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
+            layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
+            layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
+            layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
+            layoutSolver.addConstraint(.maximumY(window: w, yMax: yMax - 20))
             windows.append(w)
         }
 
-        // TODO: Add option for floating windows (exclude from this)
-        for (n1, w1) in windows.enumerated() {
-            for (n2, w2) in windows.enumerated() {
-                if n1 < n2 {
-                    await layoutSolver.addConstraint(.noOverlap(window1: w1, window2: w2))
-                }
-            }
+        let rules : [Rule] = [
+            // nvim (ghostty) is to the left of typst preview (safari) - supo workflow
+            Rule(
+                variables: ["w1", "w2"],
+                condition: .and(
+                    .and(.appContains(window: "w1", value: "ghostty"), .titleContains(window: "w1", value: "nvim")),
+                    .and(.appContains(window: "w2", value: "safari"), .titleContains(window: "w2", value: "typst"))
+                ),
+                effects: [
+                    (.leftOf(window1: "w1", window2: "w2"), 20),
+                    (.minimumSize(window: "w1", wMin: 900, hMin: 1000), 40),
+                    (.minimumSize(window: "w2", wMin: 600, hMin: 700), 30)
+                ]
+            ),
+            // Netflix/YouTube should be large and landscape
+            Rule(
+                variables: ["w"],
+                condition: .and(
+                    .appContains(window: "w", value: "safari"),
+                    .or(.titleContains(window: "w", value: "netflix"), .titleContains(window: "w", value: "youtube"))
+                ),
+                effects: [
+                    (.minimumSize(window: "w", wMin: 1000, hMin: 1000), 80),
+                    (.landscape(window: "w"), 80)
+                ]
+            ),
+            // Terminal windows should have a reasonable size
+            Rule(
+                variables: ["w"],
+                condition: .appContains(window: "w", value: "ghostty"),
+                effects: [
+                    (.minimumSize(window: "w", wMin: 300, hMin: 400), 80)
+                ]
+            )
+        ]
+        for rule in rules {
+            rule.apply(windows: windows, solver: layoutSolver)
         }
-
-        // Example constraints
-        // Typst IDE is to the left of Typst Preview
-        for w1 in windows {
-            guard w1.app.lowercased() == "ghostty", w1.title.lowercased().contains("nvim") else { continue }
-            for w2 in windows {
-                guard w2.app.lowercased() == "safari", w2.title.lowercased().contains("typst") else { continue }
-                await layoutSolver.addConstraint(.leftOfPref(window1: w1, window2: w2))
-                await layoutSolver.addConstraint(.minimumWidthPref(window: w1, wMin: 900, weight: 40))
-                await layoutSolver.addConstraint(.minimumHeightPref(window: w1, hMin: 1000, weight: 40))
-                await layoutSolver.addConstraint(.minimumWidthPref(window: w2, wMin: 600, weight: 30))
-                await layoutSolver.addConstraint(.minimumHeightPref(window: w2, hMin: 700, weight: 30))
-            }
-        }
-
-        // Netflix/YouTube window is big and landscape
-        for w in windows {
-            guard w.app.lowercased() == "safari" else { continue }
-            let t = w.title.lowercased()
-            if t.contains("netflix") || t.contains("youtube") {
-                await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: 1000, weight: 80))
-                await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: 1000, weight: 80))
-                await layoutSolver.addConstraint(.landscapePref(window: w, weight: 80))
-            }
-        }
-
-        // Terminal window has a reasonable size
-        for w in windows {
-            guard w.app.lowercased() == "ghostty" else { continue }
-            await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: 300, weight: 80))
-            await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: 400, weight: 80))
-        }
-
-        // Focused window is bigger
-        //if let focusedWindow : AXUIElement = getCurrentFocusedWindow(),
-        //   let w : LayoutWindow = windows.first(where: { CFEqual($0.element, focusedWindow) }) {
-        //    await layoutSolver.addConstraint(.minimumWidthPref(window: w, wMin: xMax * 2 / 3, weight: 4))
-        //    await layoutSolver.addConstraint(.minimumHeightPref(window: w, hMin: yMax * 2 / 3, weight: 4))
-        //}
 
         guard let layout : Layout = await layoutSolver.solve() else { return false }
 
