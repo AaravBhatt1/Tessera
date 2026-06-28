@@ -1,7 +1,8 @@
 # Notes
 
-- Use toml file to define rules
-    - Use syntax where we select windows first and then apply effects
-    - Evaluate rules with constraint effects after doing all the tagging
-- Add tagging - may need to do a topo-sort to track dependancies in the future
-        
+- Use decimals/percentages to deal with relative sizes (relative to window size)
+- Use tagging to aggregate rules (and source to source translation?)
+- Tags can be added manually by the user through a UI
+- Predictive rules?
+- Preprocessor to include and define rules/sizes
+

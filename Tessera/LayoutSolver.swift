@@ -78,7 +78,7 @@ struct Layout {
     func solve() async -> Layout? {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(2000))
+        params.set("timeout", UInt32(800))
 
         for (expr, weight) in softConstraints {
             optimizer.add_soft(expr, UInt32(weight))

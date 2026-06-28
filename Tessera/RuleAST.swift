@@ -10,20 +10,6 @@ import Z3
 
 // Using indirect enum for FP style ADTs
 
-enum ComparisonOp {
-    case lt, leq, eq, geq, gt
-
-    func apply(_ lhs: z3.expr, _ rhs: z3.expr) -> z3.expr {
-        switch self {
-        case .lt:  return lhs < rhs
-        case .leq: return lhs <= rhs
-        case .eq:  return lhs == rhs
-        case .geq: return lhs >= rhs
-        case .gt:  return lhs > rhs
-        }
-    }
-}
-
 // Either true or false if current window constraint (e.g. description), or an expression if it needs to be resolved later
 enum ConditionValue {
     case bool(Bool)
@@ -58,10 +44,8 @@ indirect enum ConditionExpr {
     case isFocused(window: String)
 
     // Returns an expression
-    case windowWidth(window: String, op: ComparisonOp, value: Int)
-    case windowHeight(window: String, op: ComparisonOp, value: Int)
-    case windowX(window: String, op: ComparisonOp, value: Int)
-    case windowY(window: String, op: ComparisonOp, value: Int)
+    case isBiggerThan(window: String, width: Int, height: Int)
+    case isSmallerThan(window: String, width: Int, height: Int)
 
     case and(ConditionExpr, ConditionExpr)
     case or(ConditionExpr, ConditionExpr)
@@ -77,18 +61,12 @@ indirect enum ConditionExpr {
         case .isFocused(let v):
             guard let w = vars[v], let focused = WindowManager.getCurrentFocusedWindow() else { return .bool(false) }
             return .bool(CFEqual(w.element, focused))
-        case .windowWidth(let v, let op, let value):
+        case .isBiggerThan(let v, let width, let height):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(op.apply(w.width, makeConst(value)))
-        case .windowHeight(let v, let op, let value):
+            return .z3Expr((w.width >= makeConst(width)) && (w.height >= makeConst(height)))
+        case .isSmallerThan(let v, let width, let height):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(op.apply(w.height, makeConst(value)))
-        case .windowX(let v, let op, let value):
-            guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(op.apply(w.x, makeConst(value)))
-        case .windowY(let v, let op, let value):
-            guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(op.apply(w.y, makeConst(value)))
+            return .z3Expr((w.width <= makeConst(width)) && (w.height <= makeConst(height)))
         case .and(let a, let b):
             return a.evaluate(vars: vars, makeConst: makeConst)
                    .and(b.evaluate(vars: vars, makeConst: makeConst))
@@ -109,6 +87,7 @@ struct Rule {
         var vars: [String: LayoutWindow] = [:]
         var available: [LayoutWindow] = windows
 
+        // TODO: Push conditions in to falsify ASAP
         func bind(remaining: [String]) {
             guard let varName = remaining.first else {
                 let condValue: ConditionValue

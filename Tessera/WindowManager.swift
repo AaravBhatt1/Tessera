@@ -186,8 +186,43 @@ class WindowManager {
         return minimumSize
     }
 
+    // Resizes the window up to the full screen size to find the largest size the app will allow, then optionally restores the original size
+    static func getMaximumWindowSize(for window: AXUIElement, restoreOriginalSize: Bool = true) -> (Int, Int)? {
+        guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
+            return nil
+        }
+        guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
+            return nil
+        }
+
+        guard setWindowSize(for: window, to: (screenWidth, screenHeight)) else {
+            return nil
+        }
+
+        let maximumSize : (Int, Int)? = getWindowSize(for: window)
+
+        if restoreOriginalSize {
+            _ = setWindowSize(for: window, to: originalSize)
+        }
+
+        return maximumSize
+    }
+
     // Update layout
     static func optimizeLayout() async -> Bool {
+        
+        // Print out an example token stream (to help visualize parser)
+        let sampleRule : String = "select w1, w2 then set w1 isLeftOf w2"
+        var lexer : ConfigLexer = ConfigLexer(input: sampleRule)
+        var tokens : [Token] = []
+        while let tok = lexer.nextToken() {
+            tokens.append(tok)
+        }
+        print("Tokens for \"\(sampleRule)\":")
+        for token in tokens {
+            print("  \(token)")
+        }
+
         let elements : [AXUIElement] = getAllWindows()
         guard let (xMax, yMax) = getScreenSize() else { return false }
         let layoutSolver : LayoutSolver = LayoutSolver()
@@ -207,9 +242,13 @@ class WindowManager {
             let app : String = getWindowApp(for: element) ?? "Unknown"
             let title : String = getWindowDesc(for: element) ?? ""
             let w : LayoutWindow = layoutSolver.addWindow(element: element, app: app, title: title)
+            // Adds minimum and maximum size and position (hard) constraints
             let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
             layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
             layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
+            //let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (xMax, yMax)
+            //layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
+            //layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
             layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
             layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
             layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
@@ -239,7 +278,7 @@ class WindowManager {
                     .or(.titleContains(window: "w", value: "netflix"), .titleContains(window: "w", value: "youtube"))
                 ),
                 effects: [
-                    (.minimumSize(window: "w", wMin: 1000, hMin: 1000), 80),
+                    (.minimumSize(window: "w", wMin: 800, hMin: 800), 80),
                     (.landscape(window: "w"), 80)
                 ]
             ),
@@ -250,8 +289,27 @@ class WindowManager {
                 effects: [
                     (.minimumSize(window: "w", wMin: 300, hMin: 400), 80)
                 ]
-            )
+            ),
+            // Safari isn't too wide
+            Rule(
+                variables: ["w"],
+                condition: .appContains(window: "w", value: "Safari"),
+                effects: [
+                    (.minimumSize(window: "w", wMin: 700, hMin: 400), 70)
+                ]
+            ),
+            // Terminal on the left
+            Rule(
+                variables: ["w1", "w2"],
+                condition: .or(.appContains(window: "w1", value: "ghostty"), .appContains(window: "w1", value: "XCode")),
+                effects: [
+                    (.leftOf(window1: "w1", window2: "w2"), 10)
+                ]
+            ),
+            
         ]
+        
+        // TODO: Potentially combine application of similar rules (though specifically ones with the same number of windows) - maybe via source to source translation
         for rule in rules {
             rule.apply(windows: windows, solver: layoutSolver)
         }
@@ -259,7 +317,7 @@ class WindowManager {
         guard let layout : Layout = await layoutSolver.solve() else { return false }
 
         // Apply layout twice to reduce the chance that changes don't properly take place
-        for _ in 0..<2 {
+        for _ in 0..<3 {
             for (window, geometry) in layout.windows {
                 guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
                 guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
