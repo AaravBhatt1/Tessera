@@ -256,57 +256,26 @@ class WindowManager {
             windows.append(w)
         }
 
+        let netflixYoutubeCondition : ConditionExpr = .and(
+           .appContains(window: "w", value: "safari"),
+                .or(.titleContains(window: "w", value: "netflix"), .titleContains(window: "w", value: "youtube"))
+        )
+
         let rules : [Rule] = [
-            // nvim (ghostty) is to the left of typst preview (safari) - supo workflow
-            Rule(
-                variables: ["w1", "w2"],
-                condition: .and(
-                    .and(.appContains(window: "w1", value: "ghostty"), .titleContains(window: "w1", value: "nvim")),
-                    .and(.appContains(window: "w2", value: "safari"), .titleContains(window: "w2", value: "typst"))
-                ),
-                effects: [
-                    (.leftOf(window1: "w1", window2: "w2"), 20),
-                    (.minimumSize(window: "w1", wMin: 900, hMin: 1000), 40),
-                    (.minimumSize(window: "w2", wMin: 600, hMin: 700), 30)
-                ]
-            ),
             // Netflix/YouTube should be large and landscape
-            Rule(
-                variables: ["w"],
-                condition: .and(
-                    .appContains(window: "w", value: "safari"),
-                    .or(.titleContains(window: "w", value: "netflix"), .titleContains(window: "w", value: "youtube"))
-                ),
-                effects: [
-                    (.minimumSize(window: "w", wMin: 800, hMin: 800), 80),
-                    (.landscape(window: "w"), 80)
-                ]
-            ),
-            // Terminal windows should have a reasonable size
-            Rule(
-                variables: ["w"],
-                condition: .appContains(window: "w", value: "ghostty"),
-                effects: [
-                    (.minimumSize(window: "w", wMin: 300, hMin: 400), 80)
-                ]
-            ),
+            Rule(variables: ["w"], condition: netflixYoutubeCondition, effect: .minimumSize(window: "w", wMin: 700, hMin: 500), weight: 200),
+            Rule(variables: ["w"], condition: netflixYoutubeCondition, effect: .landscape(window: "w"), weight: 100),
+
+            // XCode windows should have a reasonable size
+            Rule(variables: ["w"], condition: .appContains(window: "w", value: "XCode"), effect: .minimumSize(window: "w", wMin: 500, hMin: 800), weight: 120),
+
+            // Mail windows should have a reasonable size
+            Rule(variables: ["w"], condition: .appContains(window: "w", value: "Mail"), effect: .minimumSize(window: "w", wMin: 300, hMin: 500), weight: 90),
+
             // Safari isn't too wide
-            Rule(
-                variables: ["w"],
-                condition: .appContains(window: "w", value: "Safari"),
-                effects: [
-                    (.minimumSize(window: "w", wMin: 700, hMin: 400), 70)
-                ]
-            ),
-            // Terminal on the left
-            Rule(
-                variables: ["w1", "w2"],
-                condition: .or(.appContains(window: "w1", value: "ghostty"), .appContains(window: "w1", value: "XCode")),
-                effects: [
-                    (.leftOf(window1: "w1", window2: "w2"), 10)
-                ]
-            ),
-            
+            Rule(variables: ["w"], condition: .appContains(window: "w", value: "Safari"), effect: .minimumSize(window: "w", wMin: 700, hMin: 400), weight: 50),
+
+            Rule(variables: ["w1", "w2"], condition: .appContains(window: "w1", value: "XCode"), effect: .leftOf(window1: "w1", window2: "w2"), weight: 10)
         ]
         
         // TODO: Potentially combine application of similar rules (though specifically ones with the same number of windows) - maybe via source to source translation
@@ -315,14 +284,17 @@ class WindowManager {
         }
 
         guard let layout : Layout = await layoutSolver.solve() else { return false }
+        
 
         // Apply layout twice to reduce the chance that changes don't properly take place
-        for _ in 0..<3 {
+        for _ in 0..<2 {
             for (window, geometry) in layout.windows {
                 guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
                 guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
             }
         }
+        
+        print("Done")
 
         return true
     }

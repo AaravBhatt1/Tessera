@@ -78,7 +78,8 @@ struct Layout {
     func solve() async -> Layout? {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(800))
+        params.set("timeout", UInt32(2000))
+        optimizer.set(params)
 
         for (expr, weight) in softConstraints {
             optimizer.add_soft(expr, UInt32(weight))
@@ -143,12 +144,13 @@ struct Layout {
             totalSpread = totalSpread + differenceVar
         }
 
-        let varianceRatio : z3.expr = context.real_val(Int32(5))
+        let varianceRatio : z3.expr = context.real_val(Int32(50))
         optimizer.maximize(varianceRatio * totalPerimeter - totalSpread)
-
+        
         if optimizer.check() == z3.unsat {
             return nil
         }
+        
 
         let model : z3.model = optimizer.get_model()
 

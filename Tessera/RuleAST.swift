@@ -80,7 +80,8 @@ indirect enum ConditionExpr {
 struct Rule {
     let variables: [String]
     let condition: ConditionExpr?
-    let effects: [(ConstraintEffect, Int)]
+    let effect: ConstraintEffect
+    let weight: Int
 
     func apply(windows: [LayoutWindow], solver: LayoutSolver) {
         let makeConst: (Int) -> z3.expr = { n in solver.makeConstant(n) }
@@ -101,16 +102,12 @@ struct Rule {
                 case .bool(false):
                     return
                 case .bool(true):
-                    for (effect, weight) in effects {
-                        if let expr = effect.generateExpr(vars: vars, makeConst: makeConst) {
-                            solver.addSoftConstraint(expr, weight: weight)
-                        }
+                    if let expr = effect.generateExpr(vars: vars, makeConst: makeConst) {
+                        solver.addSoftConstraint(expr, weight: weight)
                     }
                 case .z3Expr(let guardExpr):
-                    for (effect, weight) in effects {
-                        if let expr = effect.generateExpr(vars: vars, makeConst: makeConst) {
-                            solver.addSoftConstraint(z3.implies(guardExpr, expr), weight: weight)
-                        }
+                    if let expr = effect.generateExpr(vars: vars, makeConst: makeConst) {
+                        solver.addSoftConstraint(z3.implies(guardExpr, expr), weight: weight)
                     }
                 }
                 return
