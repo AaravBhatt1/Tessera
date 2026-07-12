@@ -6,26 +6,63 @@
 //
 
 import Foundation
-
 // TODO: Support for more basic language features like conditions (e.g. where window isBiggerThan ...)
 enum Token : Equatable {
-    case select
+    case when
+    case appIs
+    case contentContains
     case set
-    case then
     case and
     case or
-    case hasMinimumSize
-    case hasMaximumSize
+    case isBiggerThan
+    case isSmallerThan
     case isLeftOf
     case isRightOf
     case isAbove
     case isBelow
+    case isLandscape
+    case isPortrait
+    case hasTag
     case comma
+    case colon
+    case pipe
     case openBracket
     case closeBracket
     case identifier(id : String)
     case integer(num : Int)
+    case percentage(num : Int)
     case string(value : String)
+}
+
+extension Token : CustomStringConvertible {
+    nonisolated var description : String {
+        switch self {
+        case .when: return "when"
+        case .appIs: return "appIs"
+        case .contentContains: return "contentContains"
+        case .set: return "set"
+        case .and: return "and"
+        case .or: return "or"
+        case .isBiggerThan: return "isBiggerThan"
+        case .isSmallerThan: return "isSmallerThan"
+        case .isLeftOf: return "isLeftOf"
+        case .isRightOf: return "isRightOf"
+        case .isAbove: return "isAbove"
+        case .isBelow: return "isBelow"
+        case .isLandscape: return "isLandscape"
+        case .isPortrait: return "isPortrait"
+        case .hasTag: return "hasTag"
+        case .comma: return ","
+        case .colon: return ":"
+        case .pipe: return "|"
+        case .openBracket: return "("
+        case .closeBracket: return ")"
+        case .identifier(let id): return "identifier '\(id)'"
+        case .integer(let num): return "integer \(num)"
+        case .percentage(let num): return "percentage \(num)%"
+        case .string(let value): return "string \"\(value)\""
+        }
+    }
 }
 
 struct ConfigLexer {
@@ -52,23 +89,29 @@ struct ConfigLexer {
         let token : Token
         
         switch (match) {
-        case "select"         : token = .select
+        case "when"           : token = .when
+        case "appIs"          : token = .appIs
+        case "contentContains": token = .contentContains
         case "set"            : token = .set
-        case "then"           : token = .then
         case "and"            : token = .and
         case "or"             : token = .or
-        case "hasMinimumSize" : token = .hasMinimumSize
-        case "hasMaximumSize" : token = .hasMaximumSize
+        case "isBiggerThan"   : token = .isBiggerThan
+        case "isSmallerThan"  : token = .isSmallerThan
         case "isLeftOf"       : token = .isLeftOf
         case "isRightOf"      : token = .isRightOf
         case "isAbove"        : token = .isAbove
         case "isBelow"        : token = .isBelow
+        case "isLandscape"    : token = .isLandscape
+        case "isPortrait"     : token = .isPortrait
+        case "hasTag"         : token = .hasTag
         default:
             if match.isEmpty {
                 if remainder.isEmpty { return nil }
                 let punctuation = remainder.removeFirst()
                 switch (punctuation) {
                 case "," : token = .comma
+                case ":" : token = .colon
+                case "|" : token = .pipe
                 case "(" : token = .openBracket
                 case ")" : token = .closeBracket
                 case "\"":
@@ -85,16 +128,21 @@ struct ConfigLexer {
                     token = .identifier(id: String(match))
                 }
                 else if let num : Int = Int(match) {
-                    token = .integer(num : num)
+                    remainder = remainder[match.endIndex...]
+                    if remainder.first == "%" {
+                        remainder.removeFirst()
+                        return .percentage(num: num)
+                    }
+                    return .integer(num: num)
                 }
                 else {
                     return nil
                 }
             }
         }
-        
+
         remainder = remainder[match.endIndex...]
-        
+
         return token
     }
 }

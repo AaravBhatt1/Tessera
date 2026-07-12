@@ -118,6 +118,23 @@ class WindowManager {
         return (Int(frame.width), Int(frame.height))
     }
 
+    // Returns the width and height of the screen the given window sits on,
+    // falling back to the main screen if the window position can't be resolved.
+    static func getScreenSize(for window: AXUIElement) -> (Int, Int)? {
+        guard let (x, y) = getWindowPosition(for: window),
+              let primary = NSScreen.screens.first else {
+            return getScreenSize()
+        }
+        // AX coords are top-left origin from the primary display; NSScreen frames
+        // use bottom-left origin. Flip Y using the primary screen's height.
+        let flippedY = primary.frame.maxY - CGFloat(y)
+        let point = CGPoint(x: CGFloat(x), y: flippedY)
+        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
+        guard let screen else { return nil }
+        let frame : CGRect = screen.frame
+        return (Int(frame.width), Int(frame.height))
+    }
+
     // Sets the window position to an x and y co-ordinate
     static func setWindowPosition(for window: AXUIElement, to position: (Int, Int)) -> Bool {
         // Check if window is the same application
@@ -191,12 +208,15 @@ class WindowManager {
         guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
             return nil
         }
-        guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
-            return nil
-        }
+        
+        for _ in Range(0...2) {
+            guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
+                return nil
+            }
 
-        guard setWindowSize(for: window, to: (screenWidth, screenHeight)) else {
-            return nil
+            guard setWindowSize(for: window, to: (screenWidth, screenHeight)) else {
+                return nil
+            }
         }
 
         let maximumSize : (Int, Int)? = getWindowSize(for: window)
@@ -210,34 +230,14 @@ class WindowManager {
 
     // Update layout
     static func optimizeLayout() async -> Bool {
-        
-        // Print out an example token stream (to help visualize parser)
-        let sampleRule : String = "select w1, w2 then set w1 isLeftOf w2"
-        var lexer : ConfigLexer = ConfigLexer(input: sampleRule)
-        var tokens : [Token] = []
-        while let tok = lexer.nextToken() {
-            tokens.append(tok)
-        }
-        print("Tokens for \"\(sampleRule)\":")
-        for token in tokens {
-            print("  \(token)")
-        }
 
         let elements : [AXUIElement] = getAllWindows()
         guard let (xMax, yMax) = getScreenSize() else { return false }
         let layoutSolver : LayoutSolver = LayoutSolver()
-        layoutSolver.makeConstant(15)   // padding
-        layoutSolver.makeConstant(35)   // padding for y (accounts for menu bar height)
-        layoutSolver.makeConstant(5)    // landscape/portrait ratio denominator
-        layoutSolver.makeConstant(7)    // landscape/portrait ratio numerator
-        layoutSolver.makeConstant(300)  // minimum terminal width
-        layoutSolver.makeConstant(400)  // minimum terminal height
-        layoutSolver.makeConstant(600)  // minimum preview width
-        layoutSolver.makeConstant(700)  // minimum preview height
-        layoutSolver.makeConstant(900)  // minimum editor width
-        layoutSolver.makeConstant(1000) // minimum media/editor height
 
         var windows : [LayoutWindow] = []
+        // Screen dimensions for each window, used to resolve percentage size literals in rules.
+        var screenSizes : [LayoutWindow : (Int, Int)] = [:]
         for element in elements {
             let app : String = getWindowApp(for: element) ?? "Unknown"
             let title : String = getWindowDesc(for: element) ?? ""
@@ -246,55 +246,35 @@ class WindowManager {
             let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
             layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
             layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
-            //let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (xMax, yMax)
-            //layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
-            //layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
+            let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (xMax, yMax)
+            layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
+            layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
             layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
             layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
             layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
             layoutSolver.addConstraint(.maximumY(window: w, yMax: yMax - 20))
+            screenSizes[w] = getScreenSize(for: element) ?? (xMax, yMax)
             windows.append(w)
         }
 
-        let netflixYoutubeCondition : ConditionExpr = .and(
-           .appContains(window: "w", value: "safari"),
-                .or(.titleContains(window: "w", value: "netflix"), .titleContains(window: "w", value: "youtube"))
-        )
+        ConfigFileLoader.shared.reload()
+        let rules : [Rule] =  ConfigFileLoader.shared.rules
 
-        let rules : [Rule] = [
-            // Netflix/YouTube should be large and landscape
-            Rule(variables: ["w"], condition: netflixYoutubeCondition, effect: .minimumSize(window: "w", wMin: 700, hMin: 500), weight: 200),
-            Rule(variables: ["w"], condition: netflixYoutubeCondition, effect: .landscape(window: "w"), weight: 100),
-
-            // XCode windows should have a reasonable size
-            Rule(variables: ["w"], condition: .appContains(window: "w", value: "XCode"), effect: .minimumSize(window: "w", wMin: 500, hMin: 800), weight: 120),
-
-            // Mail windows should have a reasonable size
-            Rule(variables: ["w"], condition: .appContains(window: "w", value: "Mail"), effect: .minimumSize(window: "w", wMin: 300, hMin: 500), weight: 90),
-
-            // Safari isn't too wide
-            Rule(variables: ["w"], condition: .appContains(window: "w", value: "Safari"), effect: .minimumSize(window: "w", wMin: 700, hMin: 400), weight: 50),
-
-            Rule(variables: ["w1", "w2"], condition: .appContains(window: "w1", value: "XCode"), effect: .leftOf(window1: "w1", window2: "w2"), weight: 10)
-        ]
-        
-        // TODO: Potentially combine application of similar rules (though specifically ones with the same number of windows) - maybe via source to source translation
+        let screenSizeFor: (LayoutWindow) -> (Int, Int) = { w in screenSizes[w] ?? (xMax, yMax) }
         for rule in rules {
-            rule.apply(windows: windows, solver: layoutSolver)
+            rule.apply(windows: windows, solver: layoutSolver, screenSizeFor: screenSizeFor)
         }
 
         guard let layout : Layout = await layoutSolver.solve() else { return false }
         
 
-        // Apply layout twice to reduce the chance that changes don't properly take place
-        for _ in 0..<2 {
+        // Apply layout three times to reduce the chance that changes don't properly take place
+        for _ in 0..<3 {
             for (window, geometry) in layout.windows {
                 guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
                 guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
             }
         }
-        
-        print("Done")
 
         return true
     }

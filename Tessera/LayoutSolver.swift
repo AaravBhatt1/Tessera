@@ -37,6 +37,7 @@ struct Layout {
     private var windows : [LayoutWindow] = []
     private var constraints : [LayoutConstraint] = []
     private var softConstraints : [(expr : z3.expr, weight : Int)] = []
+    private var tagVars : [LayoutWindow : [String : z3.expr]] = [:]
 
     func addWindow(element : AXUIElement, app : String, title : String) -> LayoutWindow {
         let hash = CFHash(element)
@@ -75,10 +76,18 @@ struct Layout {
         return context.real_val(numerator, denominator)
     }
 
+    func getTagVar(window : LayoutWindow, tag : String) -> z3.expr {
+        if let cached = tagVars[window]?[tag] { return cached }
+        let hash = CFHash(window.element)
+        let expr = context.bool_const("\(hash)_tag_\(tag)")
+        tagVars[window, default: [:]][tag] = expr
+        return expr
+    }
+
     func solve() async -> Layout? {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(2000))
+        params.set("timeout", UInt32(1000))
         optimizer.set(params)
 
         for (expr, weight) in softConstraints {
