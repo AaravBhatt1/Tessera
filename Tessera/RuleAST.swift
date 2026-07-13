@@ -111,7 +111,8 @@ struct Rule {
     let variables: [String]
     let condition: ConditionExpr?
     let effect: ConstraintEffect
-    let weight: Int
+    // nil means the rule is a hard constraint; otherwise a soft constraint with this weight.
+    let weight: Int?
 
     // `screenSizeFor` returns the (width, height) of the screen the given window is on.
     // Used to resolve percentage size literals to absolute pixels per-window.
@@ -148,11 +149,19 @@ struct Rule {
                     return
                 case .bool(true):
                     if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
-                        solver.addSoftConstraint(expr, weight: weight)
+                        if let weight {
+                            solver.addSoftConstraint(expr, weight: weight)
+                        } else {
+                            solver.addHardConstraint(expr)
+                        }
                     }
                 case .z3Expr(let guardExpr):
                     if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
-                        solver.addSoftConstraint(z3.implies(guardExpr, expr), weight: weight)
+                        if let weight {
+                            solver.addSoftConstraint(z3.implies(guardExpr, expr), weight: weight)
+                        } else {
+                            solver.addHardConstraint(z3.implies(guardExpr, expr))
+                        }
                     }
                 }
                 return

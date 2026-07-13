@@ -8,7 +8,7 @@
 // LL(1) grammar - draft
 // S   :- R $
 // R   :- C set E2 W    (variables come from condition + effect getFreeVars())
-// W   :- : int | | int | ε  (weight; ':' = per-rule, '|' = per-window, default 10 per-rule)
+// W   :- : int | | int | ε  (weight; absence = hard constraint, ':' or '|' = soft with the given weight)
 // C   :- when C2 | ε
 // C2  :- C3 C2'         -- OR level
 // C2' :- or C2 | ε
@@ -110,9 +110,9 @@ struct ConfigParser {
         return Rule(variables: vars, condition: cond, effect: effect, weight: weight)
     }
 
-    // W :- : int | ε (default weight 100)
-    private mutating func parseOptionalWeight() throws -> Int {
-        guard peek() == .colon else { return 100 }
+    // W :- : int | | int | ε (nil = hard constraint)
+    private mutating func parseOptionalWeight() throws -> Int? {
+        guard peek() == .colon || peek() == .pipe else { return nil }
         _ = advance()
         return try expectInteger()
     }

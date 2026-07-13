@@ -36,6 +36,7 @@ struct Layout {
     private var constants : [Int : z3.expr] = [:]
     private var windows : [LayoutWindow] = []
     private var constraints : [LayoutConstraint] = []
+    private var hardConstraints : [z3.expr] = []
     private var softConstraints : [(expr : z3.expr, weight : Int)] = []
     private var tagVars : [LayoutWindow : [String : z3.expr]] = [:]
 
@@ -60,6 +61,10 @@ struct Layout {
 
     func addSoftConstraint(_ expr : z3.expr, weight : Int) {
         softConstraints.append((expr: expr, weight: weight))
+    }
+
+    func addHardConstraint(_ expr : z3.expr) {
+        hardConstraints.append(expr)
     }
 
     var allConstants : [Int : z3.expr] { constants }
@@ -89,6 +94,10 @@ struct Layout {
         var params : z3.params = z3.params(&context)
         params.set("timeout", UInt32(1000))
         optimizer.set(params)
+
+        for expr in hardConstraints {
+            optimizer.add(expr)
+        }
 
         for (expr, weight) in softConstraints {
             optimizer.add_soft(expr, UInt32(weight))

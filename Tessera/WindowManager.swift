@@ -118,21 +118,36 @@ class WindowManager {
         return (Int(frame.width), Int(frame.height))
     }
 
-    // Returns the width and height of the screen the given window sits on,
-    // falling back to the main screen if the window position can't be resolved.
+    // AX has top-left origin and NSScreen has bottom-left origin
+    private static func axToScreen(_ point: CGPoint) -> CGPoint? {
+        guard let primary = NSScreen.screens.first else { return nil }
+        return CGPoint(x: point.x, y: primary.frame.maxY - point.y)
+    }
+
+    private static func screenToAX(_ point: CGPoint) -> CGPoint? {
+        return axToScreen(point)
+    }
+
+    // Returns the width and height of the screen the given window sits on.
     static func getScreenSize(for window: AXUIElement) -> (Int, Int)? {
         guard let (x, y) = getWindowPosition(for: window),
-              let primary = NSScreen.screens.first else {
-            return getScreenSize()
+              let screenPoint = axToScreen(CGPoint(x: CGFloat(x), y: CGFloat(y))),
+              let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) else {
+            return nil
         }
-        // AX coords are top-left origin from the primary display; NSScreen frames
-        // use bottom-left origin. Flip Y using the primary screen's height.
-        let flippedY = primary.frame.maxY - CGFloat(y)
-        let point = CGPoint(x: CGFloat(x), y: flippedY)
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
-        guard let screen else { return nil }
         let frame : CGRect = screen.frame
         return (Int(frame.width), Int(frame.height))
+    }
+
+    // Returns the top-left (x, y) of the screen the given window sits on, in AX coordinates.
+    static func getScreenPosition(for window: AXUIElement) -> (Int, Int)? {
+        guard let (x, y) = getWindowPosition(for: window),
+              let screenPoint = axToScreen(CGPoint(x: CGFloat(x), y: CGFloat(y))),
+              let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }),
+              let topLeft = screenToAX(CGPoint(x: screen.frame.minX, y: screen.frame.maxY)) else {
+            return nil
+        }
+        return (Int(topLeft.x), Int(topLeft.y))
     }
 
     // Sets the window position to an x and y co-ordinate
@@ -209,7 +224,7 @@ class WindowManager {
             return nil
         }
         
-        for _ in Range(0...2) {
+        for _ in Range(0...3) {
             guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
                 return nil
             }
@@ -231,13 +246,18 @@ class WindowManager {
     // Update layout
     static func optimizeLayout() async -> Bool {
 
-        let elements : [AXUIElement] = getAllWindows()
-        guard let (xMax, yMax) = getScreenSize() else { return false }
+        // Constrain the layout to the monitor of the currently focused window,
+        // and only tile windows that already sit on that monitor.
+        guard let focused = getCurrentFocusedWindow(),
+              let (screenW, screenH) = getScreenSize(for: focused),
+              let (screenX, screenY) = getScreenPosition(for: focused) else { return false }
+        let elements : [AXUIElement] = getAllWindows().filter { element in
+            guard let (ex, ey) = getScreenPosition(for: element) else { return false }
+            return ex == screenX && ey == screenY
+        }
         let layoutSolver : LayoutSolver = LayoutSolver()
 
         var windows : [LayoutWindow] = []
-        // Screen dimensions for each window, used to resolve percentage size literals in rules.
-        var screenSizes : [LayoutWindow : (Int, Int)] = [:]
         for element in elements {
             let app : String = getWindowApp(for: element) ?? "Unknown"
             let title : String = getWindowDesc(for: element) ?? ""
@@ -246,21 +266,20 @@ class WindowManager {
             let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
             layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
             layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
-            let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (xMax, yMax)
+            let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (screenW, screenH)
             layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
             layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
-            layoutSolver.addConstraint(.minimumX(window: w, xMin: 0))
-            layoutSolver.addConstraint(.minimumY(window: w, yMin: 0))
-            layoutSolver.addConstraint(.maximumX(window: w, xMax: xMax))
-            layoutSolver.addConstraint(.maximumY(window: w, yMax: yMax - 20))
-            screenSizes[w] = getScreenSize(for: element) ?? (xMax, yMax)
+            layoutSolver.addConstraint(.minimumX(window: w, xMin: screenX))
+            layoutSolver.addConstraint(.minimumY(window: w, yMin: screenY))
+            layoutSolver.addConstraint(.maximumX(window: w, xMax: screenX + screenW))
+            layoutSolver.addConstraint(.maximumY(window: w, yMax: screenY + screenH - 20))
             windows.append(w)
         }
 
         ConfigFileLoader.shared.reload()
         let rules : [Rule] =  ConfigFileLoader.shared.rules
 
-        let screenSizeFor: (LayoutWindow) -> (Int, Int) = { w in screenSizes[w] ?? (xMax, yMax) }
+        let screenSizeFor: (LayoutWindow) -> (Int, Int) = { _ in (screenW, screenH) }
         for rule in rules {
             rule.apply(windows: windows, solver: layoutSolver, screenSizeFor: screenSizeFor)
         }

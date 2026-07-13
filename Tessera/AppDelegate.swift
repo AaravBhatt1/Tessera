@@ -7,18 +7,16 @@
 
 import AppKit
 import Carbon.HIToolbox
-import QuartzCore
 
 // TODO: UI for errors/open config file?
 // TODO: UI for adding and removing tags dynamically (once tagging is implemented) - perhaps via dropdown
- 
-private let pulseAnimationKey = "tessera.pulse"
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var hotKeyRef: EventHotKeyRef?
     private var focusedWindowItem: NSMenuItem?
     private var idleIcon: NSImage?
+    private var progressIndicator: NSProgressIndicator?
     private var isBusy: Bool = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -160,33 +158,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func declutter() {
         guard !isBusy else { return }
         isBusy = true
-        startPulse()
+        startLoading()
 
         // Deferred a tick so no warning for race condition (with closing window)
         DispatchQueue.main.async {
             Task { @MainActor in
                 _ = await WindowManager.optimizeLayout()
-                self.stopPulse()
+                self.stopLoading()
                 self.isBusy = false
             }
         }
     }
 
-    private func startPulse() {
-        guard let layer = statusItem?.button?.layer else { return }
-        let pulse = CABasicAnimation(keyPath: "opacity")
-        pulse.fromValue = 1.0
-        pulse.toValue = 0.3
-        pulse.duration = 0.7
-        pulse.autoreverses = true
-        pulse.repeatCount = .infinity
-        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        layer.add(pulse, forKey: pulseAnimationKey)
+    private func startLoading() {
+        guard let button = statusItem?.button else { return }
+
+        let indicator = NSProgressIndicator()
+        indicator.style = .spinning
+        indicator.controlSize = .small
+        indicator.isIndeterminate = true
+        indicator.isDisplayedWhenStopped = false
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        button.addSubview(indicator)
+        NSLayoutConstraint.activate([
+            indicator.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            indicator.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+        ])
+        indicator.startAnimation(nil)
+
+        button.image = nil
+        progressIndicator = indicator
     }
 
-    private func stopPulse() {
-        guard let layer = statusItem?.button?.layer else { return }
-        layer.removeAnimation(forKey: pulseAnimationKey)
-        layer.opacity = 1.0
+    private func stopLoading() {
+        progressIndicator?.stopAnimation(nil)
+        progressIndicator?.removeFromSuperview()
+        progressIndicator = nil
+        statusItem?.button?.image = idleIcon
     }
 }
