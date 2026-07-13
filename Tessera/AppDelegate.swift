@@ -9,12 +9,15 @@ import AppKit
 import Carbon.HIToolbox
 
 // TODO: UI for errors/open config file?
-// TODO: UI for adding and removing tags dynamically (once tagging is implemented) - perhaps via dropdown
 
 class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var hotKeyRef: EventHotKeyRef?
     private var focusedWindowItem: NSMenuItem?
+    private var tagsMenuItem: NSMenuItem?
+    private var tagsSubmenu: NSMenu?
+    private var lockItem: NSMenuItem?
+    private var focusedElementForTags: AXUIElement?
     private var idleIcon: NSImage?
     private var progressIndicator: NSProgressIndicator?
     private var isBusy: Bool = false
@@ -33,6 +36,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusedItem.isEnabled = false
         focusedWindowItem = focusedItem
 
+        let tagsItem = NSMenuItem(title: "Tags", action: nil, keyEquivalent: "")
+        let tagsMenu = NSMenu(title: "Tags")
+        tagsItem.submenu = tagsMenu
+        tagsMenuItem = tagsItem
+        tagsSubmenu = tagsMenu
+
+        let lockItem = NSMenuItem(title: "Lock Position", action: #selector(toggleLock), keyEquivalent: "")
+        lockItem.target = self
+        self.lockItem = lockItem
+
         let declutterItem = NSMenuItem(title: "Declutter", action: #selector(declutter), keyEquivalent: " ")
         declutterItem.keyEquivalentModifierMask = [.command, .shift]
         declutterItem.target = self
@@ -46,6 +59,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(focusedItem)
+        menu.addItem(tagsItem)
+        menu.addItem(lockItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(declutterItem)
         menu.addItem(reloadConfigItem)
@@ -61,6 +76,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         guard let window : AXUIElement = WindowManager.getCurrentFocusedWindow() else {
             focusedWindowItem?.title = "No focused window"
+            focusedElementForTags = nil
+            rebuildTagsMenu()
+            refreshLockItem()
             return
         }
         let app : String = WindowManager.getWindowApp(for: window) ?? "Unknown app"
@@ -71,6 +89,74 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusedWindowItem?.title = full.count > maxLength
             ? String(full.prefix(maxLength)) + "..."
             : full
+        focusedElementForTags = window
+        rebuildTagsMenu()
+        refreshLockItem()
+    }
+
+    private func refreshLockItem() {
+        guard let lockItem = lockItem else { return }
+        guard let focused = focusedElementForTags else {
+            lockItem.title = "Lock Position"
+            lockItem.image = NSImage(systemSymbolName: "lock.open", accessibilityDescription: "Unlocked")
+            lockItem.isEnabled = false
+            return
+        }
+        lockItem.isEnabled = true
+        let isLocked = LockStore.shared.isLocked(focused)
+        lockItem.title = isLocked ? "Unlock Position" : "Lock Position"
+        lockItem.image = NSImage(
+            systemSymbolName: isLocked ? "lock.fill" : "lock.open",
+            accessibilityDescription: isLocked ? "Locked" : "Unlocked"
+        )
+    }
+
+    @objc private func toggleLock() {
+        guard let focused = focusedElementForTags else { return }
+        LockStore.shared.toggle(focused)
+        refreshLockItem()
+    }
+
+    private func rebuildTagsMenu() {
+        guard let tagsMenu = tagsSubmenu else { return }
+        tagsMenu.removeAllItems()
+
+        guard let focused = focusedElementForTags else {
+            let item = NSMenuItem(title: "No focused window", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            tagsMenu.addItem(item)
+            return
+        }
+
+        // Dynamic tags come from the config rules (via hasDynamicTag) plus anything
+        // the user has already assigned in-session.
+        var availableTags: Set<String> = TagStore.shared.allKnownTags
+        for rule in ConfigFileLoader.shared.rules {
+            availableTags.formUnion(rule.getDynamicTagNames())
+        }
+
+        if availableTags.isEmpty {
+            let item = NSMenuItem(title: "No dynamic tags in config", action: nil, keyEquivalent: "")
+            item.isEnabled = false
+            tagsMenu.addItem(item)
+            return
+        }
+
+        let userTags = TagStore.shared.tags(for: focused)
+
+        for tag in availableTags.sorted() {
+            let item = NSMenuItem(title: tag, action: #selector(toggleTag(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = tag
+            item.state = userTags.contains(tag) ? .on : .off
+            tagsMenu.addItem(item)
+        }
+    }
+
+    @objc private func toggleTag(_ sender: NSMenuItem) {
+        guard let tag = sender.representedObject as? String,
+              let focused = focusedElementForTags else { return }
+        TagStore.shared.toggleTag(tag, on: focused)
     }
 
     private func registerDeclutterHotKey() {
@@ -163,7 +249,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Deferred a tick so no warning for race condition (with closing window)
         DispatchQueue.main.async {
             Task { @MainActor in
-                _ = await WindowManager.optimizeLayout()
+                let _ = await WindowManager.optimizeLayout()
+                let _ = await WindowManager.optimizeLayout()
                 self.stopLoading()
                 self.isBusy = false
             }

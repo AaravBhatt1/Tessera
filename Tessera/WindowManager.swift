@@ -8,6 +8,7 @@
 import Foundation
 import ApplicationServices
 import AppKit
+import Z3
 
 class WindowManager {
     
@@ -224,14 +225,12 @@ class WindowManager {
             return nil
         }
         
-        for _ in Range(0...3) {
-            guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
-                return nil
-            }
+        guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
+            return nil
+        }
 
-            guard setWindowSize(for: window, to: (screenWidth, screenHeight)) else {
-                return nil
-            }
+        guard setWindowSize(for: window, to: (screenWidth, screenHeight)) else {
+            return nil
         }
 
         let maximumSize : (Int, Int)? = getWindowSize(for: window)
@@ -246,8 +245,7 @@ class WindowManager {
     // Update layout
     static func optimizeLayout() async -> Bool {
 
-        // Constrain the layout to the monitor of the currently focused window,
-        // and only tile windows that already sit on that monitor.
+        // Constrain the layout to the monitor of the currently focused window and ignore winows not on this workspace
         guard let focused = getCurrentFocusedWindow(),
               let (screenW, screenH) = getScreenSize(for: focused),
               let (screenX, screenY) = getScreenPosition(for: focused) else { return false }
@@ -257,27 +255,51 @@ class WindowManager {
         }
         let layoutSolver : LayoutSolver = LayoutSolver()
 
+        ConfigFileLoader.shared.reload()
+        let rules : [Rule] =  ConfigFileLoader.shared.rules
+
+        // Every dynamic tag we need to pin per window: those the user has assigned
+        var knownDynamicTags : Set<String> = TagStore.shared.allKnownTags
+        for rule in rules {
+            knownDynamicTags.formUnion(rule.getDynamicTagNames())
+        }
+
         var windows : [LayoutWindow] = []
         for element in elements {
             let app : String = getWindowApp(for: element) ?? "Unknown"
             let title : String = getWindowDesc(for: element) ?? ""
             let w : LayoutWindow = layoutSolver.addWindow(element: element, app: app, title: title)
-            // Adds minimum and maximum size and position (hard) constraints
-            let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
-            layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
-            layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
-            let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (screenW, screenH)
-            layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
-            layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
-            layoutSolver.addConstraint(.minimumX(window: w, xMin: screenX))
-            layoutSolver.addConstraint(.minimumY(window: w, yMin: screenY))
-            layoutSolver.addConstraint(.maximumX(window: w, xMax: screenX + screenW))
-            layoutSolver.addConstraint(.maximumY(window: w, yMax: screenY + screenH - 20))
+
+            // Locked windows are pinned to their current geometry; the usual size /
+            // screen-bound envelope is skipped so the pin can't be over-constrained.
+            if LockStore.shared.isLocked(element),
+               let (curX, curY) = getWindowPosition(for: element),
+               let (curW, curH) = getWindowSize(for: element) {
+                layoutSolver.addHardConstraint(w.x == layoutSolver.makeConstant(curX))
+                layoutSolver.addHardConstraint(w.y == layoutSolver.makeConstant(curY))
+                layoutSolver.addHardConstraint(w.width == layoutSolver.makeConstant(curW))
+                layoutSolver.addHardConstraint(w.height == layoutSolver.makeConstant(curH))
+            } else {
+                // Adds minimum and maximum size and position (hard) constraints
+                let (minWidth, minHeight) : (Int, Int) = getMinimumWindowSize(for: element) ?? (100, 100)
+                layoutSolver.addConstraint(.minimumWidth(window: w, wMin: minWidth))
+                layoutSolver.addConstraint(.minimumHeight(window: w, hMin: minHeight))
+                let (maxWidth, maxHeight) : (Int, Int) = getMaximumWindowSize(for: element) ?? (screenW, screenH)
+                layoutSolver.addConstraint(.maximumWidth(window: w, wMax: maxWidth))
+                layoutSolver.addConstraint(.maximumHeight(window: w, hMax: maxHeight))
+                layoutSolver.addConstraint(.minimumX(window: w, xMin: screenX))
+                layoutSolver.addConstraint(.minimumY(window: w, yMin: screenY))
+                layoutSolver.addConstraint(.maximumX(window: w, xMax: screenX + screenW))
+                layoutSolver.addConstraint(.maximumY(window: w, yMax: screenY + screenH - 20))
+            }
+
+            // Pin every known dynamic tag: true if the user assigned it, false otherwise.
+            let windowDynamicTags = TagStore.shared.tags(for: element)
+            for tag in knownDynamicTags {
+                layoutSolver.setDynamicTagHard(window: w, tag: tag, value: windowDynamicTags.contains(tag))
+            }
             windows.append(w)
         }
-
-        ConfigFileLoader.shared.reload()
-        let rules : [Rule] =  ConfigFileLoader.shared.rules
 
         let screenSizeFor: (LayoutWindow) -> (Int, Int) = { _ in (screenW, screenH) }
         for rule in rules {
@@ -285,14 +307,10 @@ class WindowManager {
         }
 
         guard let layout : Layout = await layoutSolver.solve() else { return false }
-        
 
-        // Apply layout three times to reduce the chance that changes don't properly take place
-        for _ in 0..<3 {
-            for (window, geometry) in layout.windows {
-                guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
-                guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
-            }
+        for (window, geometry) in layout.windows {
+            guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
+            guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
         }
 
         return true

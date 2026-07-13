@@ -15,7 +15,7 @@
 // C3  :- C4 C3'         -- AND level (binds tighter than OR → DNF by default)
 // C3' :- and C3 | ε
 // C4  :- ( C2 ) | C5
-// C5  :- id appIs str | id contentContains str | id isBiggerThan WS | id isSmallerThan WS | id hasTag str
+// C5  :- id appIs str | id contentContains str | id isBiggerThan WS | id isSmallerThan WS | id hasTag str | id hasDynamicTag str
 // E2  :- E3 E2'         -- OR level
 // E2' :- or E2 | ε
 // E3  :- E4 E3'         -- AND level (binds tighter than OR → DNF by default)
@@ -110,11 +110,21 @@ struct ConfigParser {
         return Rule(variables: vars, condition: cond, effect: effect, weight: weight)
     }
 
-    // W :- : int | | int | ε (nil = hard constraint)
-    private mutating func parseOptionalWeight() throws -> Int? {
-        guard peek() == .colon || peek() == .pipe else { return nil }
-        _ = advance()
-        return try expectInteger()
+    // W :- : int | | int | ε
+    //   absence = hard constraint (per binding)
+    //   ':' int = soft per binding (one weighted soft constraint per binding)
+    //   '|' int = soft aggregated  (AND across bindings, one weighted soft constraint)
+    private mutating func parseOptionalWeight() throws -> RuleWeight {
+        switch peek() {
+        case .colon:
+            _ = advance()
+            return .perBinding(try expectInteger())
+        case .pipe:
+            _ = advance()
+            return .aggregated(try expectInteger())
+        default:
+            return .hard
+        }
     }
 
     // C :- when C2 | ε
@@ -172,8 +182,10 @@ struct ConfigParser {
             return .isSmallerThan(window: w1, width: w, height: h)
         case .hasTag:
             return .hasTag(window: w1, tag: try expectString())
+        case .hasDynamicTag:
+            return .hasDynamicTag(window: w1, tag: try expectString())
         default:
-            throw ParseError.unexpected(op, expected: "appIs/contentContains/isBiggerThan/isSmallerThan/hasTag")
+            throw ParseError.unexpected(op, expected: "appIs/contentContains/isBiggerThan/isSmallerThan/hasTag/hasDynamicTag")
         }
     }
 

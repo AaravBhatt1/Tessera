@@ -23,6 +23,7 @@ enum Token : Equatable {
     case isLandscape
     case isPortrait
     case hasTag
+    case hasDynamicTag
     case comma
     case colon
     case pipe
@@ -52,6 +53,7 @@ extension Token : CustomStringConvertible {
         case .isLandscape: return "isLandscape"
         case .isPortrait: return "isPortrait"
         case .hasTag: return "hasTag"
+        case .hasDynamicTag: return "hasDynamicTag"
         case .comma: return ","
         case .colon: return ":"
         case .pipe: return "|"
@@ -104,6 +106,7 @@ struct ConfigLexer {
         case "isLandscape"    : token = .isLandscape
         case "isPortrait"     : token = .isPortrait
         case "hasTag"         : token = .hasTag
+        case "hasDynamicTag"  : token = .hasDynamicTag
         default:
             if match.isEmpty {
                 if remainder.isEmpty { return nil }

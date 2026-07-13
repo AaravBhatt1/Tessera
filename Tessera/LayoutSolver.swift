@@ -39,6 +39,7 @@ struct Layout {
     private var hardConstraints : [z3.expr] = []
     private var softConstraints : [(expr : z3.expr, weight : Int)] = []
     private var tagVars : [LayoutWindow : [String : z3.expr]] = [:]
+    private var dynamicTagVars : [LayoutWindow : [String : z3.expr]] = [:]
 
     func addWindow(element : AXUIElement, app : String, title : String) -> LayoutWindow {
         let hash = CFHash(element)
@@ -87,6 +88,22 @@ struct Layout {
         let expr = context.bool_const("\(hash)_tag_\(tag)")
         tagVars[window, default: [:]][tag] = expr
         return expr
+    }
+
+    // Dynamic tag vars live in their own namespace: they're pinned by the UI, not
+    // touched by rule effects, and read via hasDynamicTag conditions.
+    func getDynamicTagVar(window : LayoutWindow, tag : String) -> z3.expr {
+        if let cached = dynamicTagVars[window]?[tag] { return cached }
+        let hash = CFHash(window.element)
+        let expr = context.bool_const("\(hash)_dyntag_\(tag)")
+        dynamicTagVars[window, default: [:]][tag] = expr
+        return expr
+    }
+
+    // Pin a window's dynamic tag to a fixed truth value as a hard constraint.
+    func setDynamicTagHard(window : LayoutWindow, tag : String, value : Bool) {
+        let expr = getDynamicTagVar(window: window, tag: tag)
+        hardConstraints.append(expr == context.bool_val(value))
     }
 
     func solve() async -> Layout? {

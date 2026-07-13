@@ -58,12 +58,14 @@ indirect enum ConditionExpr {
     case isBiggerThan(window: String, width: SizeValue, height: SizeValue)
     case isSmallerThan(window: String, width: SizeValue, height: SizeValue)
     case hasTag(window: String, tag: String)
+    // Dynamic tags are user-controlled; effects can't set them.
+    case hasDynamicTag(window: String, tag: String)
     // TODO: window1 isBiggerThan window2?
 
     case and(ConditionExpr, ConditionExpr)
     case or(ConditionExpr, ConditionExpr)
 
-    func evaluate(vars: [String: LayoutWindow], makeConst: (Int) -> z3.expr, makeTagVar: (LayoutWindow, String) -> z3.expr, resolveW: (SizeValue, LayoutWindow) -> z3.expr, resolveH: (SizeValue, LayoutWindow) -> z3.expr) -> ConditionValue {
+    func evaluate(vars: [String: LayoutWindow], makeConst: (Int) -> z3.expr, makeTagVar: (LayoutWindow, String) -> z3.expr, makeDynamicTagVar: (LayoutWindow, String) -> z3.expr, resolveW: (SizeValue, LayoutWindow) -> z3.expr, resolveH: (SizeValue, LayoutWindow) -> z3.expr) -> ConditionValue {
         switch self {
         case .contentContains(let v, let value):
             guard let w = vars[v] else { return .bool(false) }
@@ -83,12 +85,15 @@ indirect enum ConditionExpr {
         case .hasTag(let v, let tag):
             guard let w = vars[v] else { return .bool(false) }
             return .z3Expr(makeTagVar(w, tag))
+        case .hasDynamicTag(let v, let tag):
+            guard let w = vars[v] else { return .bool(false) }
+            return .z3Expr(makeDynamicTagVar(w, tag))
         case .and(let a, let b):
-            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH)
-                   .and(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH))
+            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
+                   .and(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH))
         case .or(let a, let b):
-            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH)
-                   .or(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH))
+            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
+                   .or(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH))
         }
     }
 
@@ -100,25 +105,54 @@ indirect enum ConditionExpr {
         case .isBiggerThan(let w, _, _): accum.insert(w)
         case .isSmallerThan(let w, _, _): accum.insert(w)
         case .hasTag(let w, _): accum.insert(w)
+        case .hasDynamicTag(let w, _): accum.insert(w)
         case .and(let a, let b): a.getFreeVars(accum: &accum); b.getFreeVars(accum: &accum)
         case .or(let a, let b): a.getFreeVars(accum: &accum); b.getFreeVars(accum: &accum)
         }
     }
 
+    func getTagNames(accum : inout Set<String>) {
+        switch self {
+        case .hasTag(_, let tag): accum.insert(tag)
+        case .and(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
+        case .or(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
+        default: break
+        }
+    }
+
+    func getDynamicTagNames(accum : inout Set<String>) {
+        switch self {
+        case .hasDynamicTag(_, let tag): accum.insert(tag)
+        case .and(let a, let b): a.getDynamicTagNames(accum: &accum); b.getDynamicTagNames(accum: &accum)
+        case .or(let a, let b): a.getDynamicTagNames(accum: &accum); b.getDynamicTagNames(accum: &accum)
+        default: break
+        }
+    }
+
+}
+
+enum RuleWeight {
+    case hard
+    case perBinding(Int)
+    case aggregated(Int)
 }
 
 struct Rule {
     let variables: [String]
     let condition: ConditionExpr?
     let effect: ConstraintEffect
-    // nil means the rule is a hard constraint; otherwise a soft constraint with this weight.
-    let weight: Int?
+    let weight: RuleWeight
 
-    // `screenSizeFor` returns the (width, height) of the screen the given window is on.
-    // Used to resolve percentage size literals to absolute pixels per-window.
+    func getDynamicTagNames() -> Set<String> {
+        var acc: Set<String> = []
+        condition?.getDynamicTagNames(accum: &acc)
+        return acc
+    }
+
     func apply(windows: [LayoutWindow], solver: LayoutSolver, screenSizeFor: @escaping (LayoutWindow) -> (Int, Int)) {
         let makeConst: (Int) -> z3.expr = { n in solver.makeConstant(n) }
         let makeTagVar: (LayoutWindow, String) -> z3.expr = { w, tag in solver.getTagVar(window: w, tag: tag) }
+        let makeDynamicTagVar: (LayoutWindow, String) -> z3.expr = { w, tag in solver.getDynamicTagVar(window: w, tag: tag) }
         let resolveW: (SizeValue, LayoutWindow) -> z3.expr = { v, w in
             switch v {
             case .absolute(let n): return solver.makeConstant(n)
@@ -134,12 +168,26 @@ struct Rule {
         var vars: [String: LayoutWindow] = [:]
         var available: [LayoutWindow] = windows
 
+        var aggregatedExprs: [z3.expr] = []
+
+        // How to add constraint
+        func emit(_ expr: z3.expr) {
+            switch weight {
+            case .hard:
+                solver.addHardConstraint(expr)
+            case .perBinding(let w):
+                solver.addSoftConstraint(expr, weight: w)
+            case .aggregated:
+                aggregatedExprs.append(expr)
+            }
+        }
+
         // TODO: Push conditions in to falsify ASAP?
         func bind(remaining: [String]) {
             guard let varName = remaining.first else {
                 let condValue: ConditionValue
                 if let condition {
-                    condValue = condition.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH)
+                    condValue = condition.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
                 } else {
                     condValue = .bool(true)
                 }
@@ -149,23 +197,16 @@ struct Rule {
                     return
                 case .bool(true):
                     if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
-                        if let weight {
-                            solver.addSoftConstraint(expr, weight: weight)
-                        } else {
-                            solver.addHardConstraint(expr)
-                        }
+                        emit(expr)
                     }
                 case .z3Expr(let guardExpr):
                     if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
-                        if let weight {
-                            solver.addSoftConstraint(z3.implies(guardExpr, expr), weight: weight)
-                        } else {
-                            solver.addHardConstraint(z3.implies(guardExpr, expr))
-                        }
+                        emit(z3.implies(guardExpr, expr))
                     }
                 }
                 return
             }
+            
             let rest = Array(remaining.dropFirst())
             for (i, window) in available.enumerated() {
                 vars[varName] = window
@@ -177,6 +218,15 @@ struct Rule {
         }
 
         bind(remaining: variables)
+
+        // If this rule aggregates, and all the aggregated rules together with weight
+        if case .aggregated(let w) = weight, !aggregatedExprs.isEmpty {
+            var combined = aggregatedExprs[0]
+            for i in 1..<aggregatedExprs.count {
+                combined = combined && aggregatedExprs[i]
+            }
+            solver.addSoftConstraint(combined, weight: w)
+        }
     }
 }
 
@@ -212,6 +262,15 @@ indirect enum ConstraintEffect {
         case .or(let e1, let e2): e1.getFreeVars(accum: &accum); e2.getFreeVars(accum: &accum)
         }
 
+    }
+
+    func getTagNames(accum : inout Set<String>) {
+        switch self {
+        case .hasTag(_, let tag): accum.insert(tag)
+        case .and(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
+        case .or(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
+        default: break
+        }
     }
 
     func generateExpr(vars: [String: LayoutWindow], makeConst: (Int) -> z3.expr, makeTagVar: (LayoutWindow, String) -> z3.expr, resolveW: (SizeValue, LayoutWindow) -> z3.expr, resolveH: (SizeValue, LayoutWindow) -> z3.expr) -> z3.expr? {
