@@ -7,6 +7,7 @@
 
 import AppKit
 import Carbon.HIToolbox
+import ServiceManagement
 
 // TODO: UI for errors/open config file?
 
@@ -14,9 +15,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var hotKeyRef: EventHotKeyRef?
     private var focusedWindowItem: NSMenuItem?
+    private var windowSizeItem: NSMenuItem?
     private var tagsMenuItem: NSMenuItem?
     private var tagsSubmenu: NSMenu?
     private var lockItem: NSMenuItem?
+    private var launchAtLoginItem: NSMenuItem?
     private var focusedElementForTags: AXUIElement?
     private var idleIcon: NSImage?
     private var progressIndicator: NSProgressIndicator?
@@ -36,6 +39,10 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusedItem.isEnabled = false
         focusedWindowItem = focusedItem
 
+        let sizeItem = NSMenuItem(title: "Size: —", action: nil, keyEquivalent: "")
+        sizeItem.isEnabled = false
+        windowSizeItem = sizeItem
+
         let tagsItem = NSMenuItem(title: "Tags", action: nil, keyEquivalent: "")
         let tagsMenu = NSMenu(title: "Tags")
         tagsItem.submenu = tagsMenu
@@ -53,17 +60,23 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let reloadConfigItem = NSMenuItem(title: "Reload Config", action: #selector(reloadConfig), keyEquivalent: "")
         reloadConfigItem.target = self
 
+        let launchAtLoginItem = NSMenuItem(title: "Open at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem.target = self
+        self.launchAtLoginItem = launchAtLoginItem
+
         let quitItem = NSMenuItem(title: "Quit Tessera", action: #selector(quit), keyEquivalent: "")
         quitItem.target = self
 
         let menu = NSMenu()
         menu.delegate = self
         menu.addItem(focusedItem)
+        menu.addItem(sizeItem)
         menu.addItem(tagsItem)
         menu.addItem(lockItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(declutterItem)
         menu.addItem(reloadConfigItem)
+        menu.addItem(launchAtLoginItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(quitItem)
         item.menu = menu
@@ -71,11 +84,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem = item
 
         registerDeclutterHotKey()
+        enableLaunchAtLoginOnFirstRun()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
         guard let window : AXUIElement = WindowManager.getCurrentFocusedWindow() else {
             focusedWindowItem?.title = "No focused window"
+            windowSizeItem?.title = "Size: —"
             focusedElementForTags = nil
             rebuildTagsMenu()
             refreshLockItem()
@@ -89,9 +104,46 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         focusedWindowItem?.title = full.count > maxLength
             ? String(full.prefix(maxLength)) + "..."
             : full
+        if let (w, h) = WindowManager.getWindowSize(for: window) {
+            windowSizeItem?.title = "Size: \(w) × \(h)"
+        } else {
+            windowSizeItem?.title = "Size: —"
+        }
         focusedElementForTags = window
         rebuildTagsMenu()
         refreshLockItem()
+        refreshLaunchAtLoginItem()
+    }
+
+    private func refreshLaunchAtLoginItem() {
+        guard let launchAtLoginItem = launchAtLoginItem else { return }
+        launchAtLoginItem.state = (SMAppService.mainApp.status == .enabled) ? .on : .off
+    }
+
+    @objc private func toggleLaunchAtLogin() {
+        let service = SMAppService.mainApp
+        do {
+            if service.status == .enabled {
+                try service.unregister()
+            } else {
+                try service.register()
+            }
+        } catch {
+            NSLog("Tessera: failed to toggle launch at login: \(error)")
+        }
+        refreshLaunchAtLoginItem()
+    }
+
+    // Register once on first launch so the app opens at login out of the box.
+    // The user can still disable it via the menu.
+    private func enableLaunchAtLoginOnFirstRun() {
+        let key = "TesseraDidConfigureLaunchAtLogin"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let service = SMAppService.mainApp
+        if service.status != .enabled {
+            try? service.register()
+        }
     }
 
     private func refreshLockItem() {
