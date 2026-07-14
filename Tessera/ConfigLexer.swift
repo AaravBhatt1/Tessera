@@ -14,6 +14,7 @@ enum Token : Equatable {
     case set
     case and
     case or
+    case not
     case isBiggerThan
     case isSmallerThan
     case isLeftOf
@@ -44,6 +45,7 @@ extension Token : CustomStringConvertible {
         case .set: return "set"
         case .and: return "and"
         case .or: return "or"
+        case .not: return "not"
         case .isBiggerThan: return "isBiggerThan"
         case .isSmallerThan: return "isSmallerThan"
         case .isLeftOf: return "isLeftOf"
@@ -97,6 +99,7 @@ struct ConfigLexer {
         case "set"            : token = .set
         case "and"            : token = .and
         case "or"             : token = .or
+        case "not"            : token = .not
         case "isBiggerThan"   : token = .isBiggerThan
         case "isSmallerThan"  : token = .isSmallerThan
         case "isLeftOf"       : token = .isLeftOf

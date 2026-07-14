@@ -10,6 +10,13 @@ import ApplicationServices
 import AppKit
 import Z3
 
+enum LayoutOutcome {
+    case success
+    case noActiveScreen
+    case unsatisfiable
+    case applyFailed
+}
+
 class WindowManager {
     
     // This function returns a list of pairs of windows on the screen and their associated application ID
@@ -144,11 +151,34 @@ class WindowManager {
     static func getScreenPosition(for window: AXUIElement) -> (Int, Int)? {
         guard let (x, y) = getWindowPosition(for: window),
               let screenPoint = axToScreen(CGPoint(x: CGFloat(x), y: CGFloat(y))),
-              let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }),
-              let topLeft = screenToAX(CGPoint(x: screen.frame.minX, y: screen.frame.maxY)) else {
+              let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) else {
+            return nil
+        }
+        return getScreenPosition(for: screen)
+    }
+
+    // Returns the top-left (x, y) of the given screen in AX coordinates.
+    static func getScreenPosition(for screen: NSScreen) -> (Int, Int)? {
+        guard let topLeft = screenToAX(CGPoint(x: screen.frame.minX, y: screen.frame.maxY)) else {
             return nil
         }
         return (Int(topLeft.x), Int(topLeft.y))
+    }
+
+    // Best-effort choice of the screen we should lay out on: prefer the focused
+    // window's screen, then the screen under the mouse, then the main screen.
+    static func getActiveScreen() -> NSScreen? {
+        if let focused = getCurrentFocusedWindow(),
+           let (x, y) = getWindowPosition(for: focused),
+           let screenPoint = axToScreen(CGPoint(x: CGFloat(x), y: CGFloat(y))),
+           let screen = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) }) {
+            return screen
+        }
+        let mouse = NSEvent.mouseLocation
+        if let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) {
+            return screen
+        }
+        return NSScreen.main
     }
 
     // Sets the window position to an x and y co-ordinate
@@ -162,19 +192,19 @@ class WindowManager {
             return false
         }
 
-        
+
         var cgPoint : CGPoint = CGPoint(x: CGFloat(position.0), y: CGFloat(position.1))
         guard let axPosition = AXValueCreate(.cgPoint, &cgPoint) else {
             return false
         }
-        
+
         let positionResult : AXError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, axPosition)
         guard positionResult == .success else {
             return false
         }
         return true
     }
-    
+
     // Sets the window size to a width and height
     static func setWindowSize(for window: AXUIElement, to size: (Int, Int)) -> Bool {
         // Check if window is the same application
@@ -185,21 +215,21 @@ class WindowManager {
             // TODO: Potentially support modifying my own window
             return false
         }
-        
-        
+
+
         var cgSize : CGSize = CGSize(width: CGFloat(size.0), height: CGFloat(size.1))
         guard let axSize = AXValueCreate(.cgSize, &cgSize) else {
             return false
         }
-        
+
         let sizeResult : AXError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, axSize)
         guard sizeResult == .success else {
             return false
         }
-        
+
         return true
     }
-    
+
     // Resizes the window down to find the smallest size the app will allow, then optionally restores the original size
     static func getMinimumWindowSize(for window: AXUIElement, restoreOriginalSize: Bool = true) -> (Int, Int)? {
         guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
@@ -243,12 +273,12 @@ class WindowManager {
     }
 
     // Update layout
-    static func optimizeLayout() async -> Bool {
+    static func optimizeLayout() async -> LayoutOutcome {
 
-        // Constrain the layout to the monitor of the currently focused window and ignore winows not on this workspace
-        guard let focused = getCurrentFocusedWindow(),
-              let (screenW, screenH) = getScreenSize(for: focused),
-              let (screenX, screenY) = getScreenPosition(for: focused) else { return false }
+        // Constrain the layout to the monitor picked by getActiveScreen and ignore windows not on this workspace
+        guard let screen = getActiveScreen(),
+              let (screenX, screenY) = getScreenPosition(for: screen) else { return .noActiveScreen }
+        let (screenW, screenH) = (Int(screen.frame.width), Int(screen.frame.height))
         let elements : [AXUIElement] = getAllWindows().filter { element in
             guard let (ex, ey) = getScreenPosition(for: element) else { return false }
             return ex == screenX && ey == screenY
@@ -306,14 +336,20 @@ class WindowManager {
             rule.apply(windows: windows, solver: layoutSolver, screenSizeFor: screenSizeFor)
         }
 
-        guard let layout : Layout = await layoutSolver.solve() else { return false }
-
-        for (window, geometry) in layout.windows {
-            guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return false }
-            guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return false }
+        let layout : Layout
+        switch await layoutSolver.solve() {
+        case .solved(let l):
+            layout = l
+        case .unsatisfiable:
+            return .unsatisfiable
         }
 
-        return true
+        for (window, geometry) in layout.windows {
+            guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return .applyFailed }
+            guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return .applyFailed }
+        }
+
+        return .success
     }
     
     // Returns the current focused window

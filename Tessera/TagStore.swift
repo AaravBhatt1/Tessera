@@ -49,4 +49,8 @@ final class TagStore {
             addTag(tag, to: element)
         }
     }
+
+    func resetAll() {
+        windowTags.removeAll()
+    }
 }

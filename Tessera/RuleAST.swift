@@ -19,6 +19,20 @@ import Z3
 enum SizeValue : Equatable {
     case absolute(Int)
     case percent(Int)
+
+    func resolveWidth(for window: LayoutWindow, solver: LayoutSolver, screenSizeFor: (LayoutWindow) -> (Int, Int)) -> z3.expr {
+        switch self {
+        case .absolute(let n): return solver.makeConstant(n)
+        case .percent(let p): return solver.makeConstant(screenSizeFor(window).0 * p / 100)
+        }
+    }
+
+    func resolveHeight(for window: LayoutWindow, solver: LayoutSolver, screenSizeFor: (LayoutWindow) -> (Int, Int)) -> z3.expr {
+        switch self {
+        case .absolute(let n): return solver.makeConstant(n)
+        case .percent(let p): return solver.makeConstant(screenSizeFor(window).1 * p / 100)
+        }
+    }
 }
 
 // Either true or false if current window constraint (e.g. description), or an expression if it needs to be resolved later
@@ -46,6 +60,13 @@ enum ConditionValue {
         }
     }
 
+    func not(solver: LayoutSolver) -> ConditionValue {
+        switch self {
+        case .bool(let b): return .bool(!b)
+        case .z3Expr(let e): return .z3Expr(solver.makeNot(e))
+        }
+    }
+
 }
 
 indirect enum ConditionExpr {
@@ -64,8 +85,9 @@ indirect enum ConditionExpr {
 
     case and(ConditionExpr, ConditionExpr)
     case or(ConditionExpr, ConditionExpr)
+    case not(ConditionExpr)
 
-    func evaluate(vars: [String: LayoutWindow], makeConst: (Int) -> z3.expr, makeTagVar: (LayoutWindow, String) -> z3.expr, makeDynamicTagVar: (LayoutWindow, String) -> z3.expr, resolveW: (SizeValue, LayoutWindow) -> z3.expr, resolveH: (SizeValue, LayoutWindow) -> z3.expr) -> ConditionValue {
+    func evaluate(vars: [String: LayoutWindow], solver: LayoutSolver, screenSizeFor: (LayoutWindow) -> (Int, Int)) -> ConditionValue {
         switch self {
         case .contentContains(let v, let value):
             guard let w = vars[v] else { return .bool(false) }
@@ -78,22 +100,24 @@ indirect enum ConditionExpr {
             return .bool(CFEqual(w.element, focused))
         case .isBiggerThan(let v, let width, let height):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr((w.width >= resolveW(width, w)) && (w.height >= resolveH(height, w)))
+            return .z3Expr((w.width >= width.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height >= height.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor)))
         case .isSmallerThan(let v, let width, let height):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr((w.width <= resolveW(width, w)) && (w.height <= resolveH(height, w)))
+            return .z3Expr((w.width <= width.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height <= height.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor)))
         case .hasTag(let v, let tag):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(makeTagVar(w, tag))
+            return .z3Expr(solver.getTagVar(window: w, tag: tag))
         case .hasDynamicTag(let v, let tag):
             guard let w = vars[v] else { return .bool(false) }
-            return .z3Expr(makeDynamicTagVar(w, tag))
+            return .z3Expr(solver.getDynamicTagVar(window: w, tag: tag))
         case .and(let a, let b):
-            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
-                   .and(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH))
+            return a.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor)
+                   .and(b.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor))
         case .or(let a, let b):
-            return a.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
-                   .or(b.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH))
+            return a.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor)
+                   .or(b.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor))
+        case .not(let a):
+            return a.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor).not(solver: solver)
         }
     }
 
@@ -108,6 +132,7 @@ indirect enum ConditionExpr {
         case .hasDynamicTag(let w, _): accum.insert(w)
         case .and(let a, let b): a.getFreeVars(accum: &accum); b.getFreeVars(accum: &accum)
         case .or(let a, let b): a.getFreeVars(accum: &accum); b.getFreeVars(accum: &accum)
+        case .not(let a): a.getFreeVars(accum: &accum)
         }
     }
 
@@ -116,6 +141,7 @@ indirect enum ConditionExpr {
         case .hasTag(_, let tag): accum.insert(tag)
         case .and(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
         case .or(let a, let b): a.getTagNames(accum: &accum); b.getTagNames(accum: &accum)
+        case .not(let a): a.getTagNames(accum: &accum)
         default: break
         }
     }
@@ -125,6 +151,7 @@ indirect enum ConditionExpr {
         case .hasDynamicTag(_, let tag): accum.insert(tag)
         case .and(let a, let b): a.getDynamicTagNames(accum: &accum); b.getDynamicTagNames(accum: &accum)
         case .or(let a, let b): a.getDynamicTagNames(accum: &accum); b.getDynamicTagNames(accum: &accum)
+        case .not(let a): a.getDynamicTagNames(accum: &accum)
         default: break
         }
     }
@@ -150,21 +177,6 @@ struct Rule {
     }
 
     func apply(windows: [LayoutWindow], solver: LayoutSolver, screenSizeFor: @escaping (LayoutWindow) -> (Int, Int)) {
-        let makeConst: (Int) -> z3.expr = { n in solver.makeConstant(n) }
-        let makeTagVar: (LayoutWindow, String) -> z3.expr = { w, tag in solver.getTagVar(window: w, tag: tag) }
-        let makeDynamicTagVar: (LayoutWindow, String) -> z3.expr = { w, tag in solver.getDynamicTagVar(window: w, tag: tag) }
-        let resolveW: (SizeValue, LayoutWindow) -> z3.expr = { v, w in
-            switch v {
-            case .absolute(let n): return solver.makeConstant(n)
-            case .percent(let p): return solver.makeConstant(screenSizeFor(w).0 * p / 100)
-            }
-        }
-        let resolveH: (SizeValue, LayoutWindow) -> z3.expr = { v, w in
-            switch v {
-            case .absolute(let n): return solver.makeConstant(n)
-            case .percent(let p): return solver.makeConstant(screenSizeFor(w).1 * p / 100)
-            }
-        }
         var vars: [String: LayoutWindow] = [:]
         var available: [LayoutWindow] = windows
 
@@ -187,7 +199,7 @@ struct Rule {
             guard let varName = remaining.first else {
                 let condValue: ConditionValue
                 if let condition {
-                    condValue = condition.evaluate(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, makeDynamicTagVar: makeDynamicTagVar, resolveW: resolveW, resolveH: resolveH)
+                    condValue = condition.evaluate(vars: vars, solver: solver, screenSizeFor: screenSizeFor)
                 } else {
                     condValue = .bool(true)
                 }
@@ -196,17 +208,17 @@ struct Rule {
                 case .bool(false):
                     return
                 case .bool(true):
-                    if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
+                    if let expr = effect.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor) {
                         emit(expr)
                     }
                 case .z3Expr(let guardExpr):
-                    if let expr = effect.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) {
+                    if let expr = effect.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor) {
                         emit(z3.implies(guardExpr, expr))
                     }
                 }
                 return
             }
-            
+
             let rest = Array(remaining.dropFirst())
             for (i, window) in available.enumerated() {
                 vars[varName] = window
@@ -273,22 +285,22 @@ indirect enum ConstraintEffect {
         }
     }
 
-    func generateExpr(vars: [String: LayoutWindow], makeConst: (Int) -> z3.expr, makeTagVar: (LayoutWindow, String) -> z3.expr, resolveW: (SizeValue, LayoutWindow) -> z3.expr, resolveH: (SizeValue, LayoutWindow) -> z3.expr) -> z3.expr? {
-        let pad = makeConst(15)
+    func generateExpr(vars: [String: LayoutWindow], solver: LayoutSolver, screenSizeFor: (LayoutWindow) -> (Int, Int)) -> z3.expr? {
+        let pad = solver.makeConstant(15)
 
         switch self {
         case .minimumSize(let v, let wMin, let hMin):
             guard let w = vars[v] else { return nil }
-            return (w.width >= resolveW(wMin, w)) && (w.height >= resolveH(hMin, w))
+            return (w.width >= wMin.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height >= hMin.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor))
         case .maximumSize(let v, let wMax, let hMax):
             guard let w = vars[v] else { return nil }
-            return (w.width <= resolveW(wMax, w)) && (w.height <= resolveH(hMax, w))
+            return (w.width <= wMax.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height <= hMax.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor))
         case .preferredPosition(let v, let x, let y):
             guard let w = vars[v] else { return nil }
-            return (w.x == makeConst(x)) && (w.y == makeConst(y))
+            return (w.x == solver.makeConstant(x)) && (w.y == solver.makeConstant(y))
         case .preferredSize(let v, let width, let height):
             guard let w = vars[v] else { return nil }
-            return (w.width == resolveW(width, w)) && (w.height == resolveH(height, w))
+            return (w.width == width.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height == height.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor))
         case .leftOf(let v1, let v2):
             guard let w1 = vars[v1], let w2 = vars[v2] else { return nil }
             return w1.x + w1.width + pad <= w2.x
@@ -303,20 +315,20 @@ indirect enum ConstraintEffect {
             return w2.y + w2.height + pad <= w1.y
         case .landscape(let v):
             guard let w = vars[v] else { return nil }
-            return makeConst(5) * w.width >= makeConst(7) * w.height
+            return solver.makeConstant(5) * w.width >= solver.makeConstant(7) * w.height
         case .portrait(let v):
             guard let w = vars[v] else { return nil }
-            return makeConst(5) * w.height >= makeConst(7) * w.width
+            return solver.makeConstant(5) * w.height >= solver.makeConstant(7) * w.width
         case .hasTag(let v, let tag):
             guard let w = vars[v] else { return nil }
-            return makeTagVar(w, tag)
+            return solver.getTagVar(window: w, tag: tag)
         case .and(let a, let b):
-            guard let ea = a.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH),
-                  let eb = b.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) else { return nil }
+            guard let ea = a.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor),
+                  let eb = b.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor) else { return nil }
             return ea && eb
         case .or(let a, let b):
-            guard let ea = a.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH),
-                  let eb = b.generateExpr(vars: vars, makeConst: makeConst, makeTagVar: makeTagVar, resolveW: resolveW, resolveH: resolveH) else { return nil }
+            guard let ea = a.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor),
+                  let eb = b.generateExpr(vars: vars, solver: solver, screenSizeFor: screenSizeFor) else { return nil }
             return ea || eb
         }
     }

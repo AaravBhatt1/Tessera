@@ -175,6 +175,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func reloadConfig() {
+        TagStore.shared.resetAll()
         let errors = ConfigFileLoader.shared.reload()
         let alert = NSAlert()
         if errors.isEmpty {
@@ -249,12 +250,26 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Deferred a tick so no warning for race condition (with closing window)
         DispatchQueue.main.async {
             Task { @MainActor in
-                let _ = await WindowManager.optimizeLayout()
-                let _ = await WindowManager.optimizeLayout()
+                let result = await WindowManager.optimizeLayout()
                 self.stopLoading()
                 self.isBusy = false
+                self.showSolverErrorIfNeeded(result)
             }
         }
+    }
+
+    private func showSolverErrorIfNeeded(_ result: LayoutOutcome) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        switch result {
+        case .unsatisfiable:
+            alert.messageText = "No layout satisfies your rules"
+            alert.informativeText = "The constraint solver could not find a layout that meets every rule. Try removing or relaxing conflicting rules."
+        case .success, .noActiveScreen, .applyFailed:
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
     }
 
     private func startLoading() {

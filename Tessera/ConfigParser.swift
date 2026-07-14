@@ -7,13 +7,16 @@
 
 // LL(1) grammar - draft
 // S   :- R $
-// R   :- C set E2 W    (variables come from condition + effect getFreeVars())
+// R   :- C set E2 C W  (variables come from condition + effect getFreeVars();
+//                       the 'when' clause is optional and may appear either before
+//                       or after 'set E2', but not both)
 // W   :- : int | | int | ε  (weight; absence = hard constraint, ':' or '|' = soft with the given weight)
 // C   :- when C2 | ε
 // C2  :- C3 C2'         -- OR level
 // C2' :- or C2 | ε
-// C3  :- C4 C3'         -- AND level (binds tighter than OR → DNF by default)
+// C3  :- CN C3'         -- AND level (binds tighter than OR → DNF by default)
 // C3' :- and C3 | ε
+// CN  :- not CN | C4    -- NOT level (unary, right-assoc; only allowed in conditions)
 // C4  :- ( C2 ) | C5
 // C5  :- id appIs str | id contentContains str | id isBiggerThan WS | id isSmallerThan WS | id hasTag str | id hasDynamicTag str
 // E2  :- E3 E2'         -- OR level
@@ -97,11 +100,17 @@ struct ConfigParser {
         }
     }
 
-    // R :- C set E2 W   (variables derived from condition + effect free vars)
+    // R :- C set E2 C W   (variables derived from condition + effect free vars;
+    //                      'when' may appear before OR after the effect, but not both)
     mutating func parseRule() throws -> Rule {
-        let cond = try parseWhenCondition()
+        var cond = try parseWhenCondition()
         try expect(.set, label: "set")
         let effect = try parseEffect()
+        if cond == nil {
+            cond = try parseWhenCondition()
+        } else if peek() == .when {
+            throw ParseError.unexpected(.when, expected: "':', '|', or end of line (when clause already provided before 'set')")
+        }
         let weight = try parseOptionalWeight()
         var freeVars : Set<String> = []
         effect.getFreeVars(accum: &freeVars)
@@ -145,15 +154,24 @@ struct ConfigParser {
         return left
     }
 
-    // C3 :- C4 (and C3)?
+    // C3 :- CN (and C3)?
     private mutating func parseConditionAnd() throws -> ConditionExpr {
-        let left = try parseConditionAtom()
+        let left = try parseConditionNot()
         if peek() == .and {
             _ = advance()
             let right = try parseConditionAnd()
             return .and(left, right)
         }
         return left
+    }
+
+    // CN :- not CN | C4
+    private mutating func parseConditionNot() throws -> ConditionExpr {
+        if peek() == .not {
+            _ = advance()
+            return .not(try parseConditionNot())
+        }
+        return try parseConditionAtom()
     }
 
     // C4 :- ( C2 ) | C5

@@ -30,6 +30,11 @@ struct Layout {
     let windows : [LayoutWindow : WindowGeometry]
 }
 
+enum SolveResult {
+    case solved(Layout)
+    case unsatisfiable
+}
+
 @MainActor class LayoutSolver {
 
     private var context : z3.context = z3.context()
@@ -82,6 +87,12 @@ struct Layout {
         return context.real_val(numerator, denominator)
     }
 
+    // Logical negation. Swift's C++ interop can't import the prefix `operator!`
+    // from z3++.h, so we express !e as `e == false`.
+    func makeNot(_ expr : z3.expr) -> z3.expr {
+        return expr == context.bool_val(false)
+    }
+
     func getTagVar(window : LayoutWindow, tag : String) -> z3.expr {
         if let cached = tagVars[window]?[tag] { return cached }
         let hash = CFHash(window.element)
@@ -106,10 +117,10 @@ struct Layout {
         hardConstraints.append(expr == context.bool_val(value))
     }
 
-    func solve() async -> Layout? {
+    func solve() async -> SolveResult {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(1000))
+        params.set("timeout", UInt32(2000))
         optimizer.set(params)
 
         for expr in hardConstraints {
@@ -148,12 +159,11 @@ struct Layout {
             for j in (i + 1)..<windows.count {
                 let w1 = windows[i]
                 let w2 = windows[j]
-                optimizer.add_soft(
+                optimizer.add(
                     (w1.x + w1.width + xPad <= w2.x) ||
                     (w2.x + w2.width + xPad <= w1.x) ||
                     (w1.y + w1.height + yPad <= w2.y) ||
-                    (w2.y + w2.height + yPad <= w1.y),
-                    1000
+                    (w2.y + w2.height + yPad <= w1.y)
                 )
             }
         }
@@ -182,10 +192,10 @@ struct Layout {
         let varianceRatio : z3.expr = context.real_val(Int32(50))
         optimizer.maximize(varianceRatio * totalPerimeter - totalSpread)
         
+        // Treat unknown (timeout) as satisfying — best-effort read the model Z3 has.
         if optimizer.check() == z3.unsat {
-            return nil
+            return .unsatisfiable
         }
-        
 
         let model : z3.model = optimizer.get_model()
 
@@ -199,6 +209,6 @@ struct Layout {
             )
         }
 
-        return Layout(windows: geometries)
+        return .solved(Layout(windows: geometries))
     }
 }
