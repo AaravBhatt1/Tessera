@@ -8,7 +8,7 @@ Most window managers for MacOS are made for 'advanced users', requiring them to 
 
 ## How to use?
 
-1. Install Tessera from the app store
+1. Install Tessera from the releases page (on Github)
 2. Run Tessera
 3. Use `CMD+SHIFT+SPACE` or use the toolbar UI to declutter your windows into a tiled layout
 4. [OPTIONAL] Configure tiling preferences using `~/.tessera/rules.conf` and click the 'reload config' button in the toolbar UI
@@ -139,3 +139,37 @@ E.g
 ```
 set window isBiggerThan (40%, 40%) when window hasDynamicTag "big"
 ```
+
+### Reference
+
+More to come...
+
+#### Conditions
+
+| Syntax | Meaning |
+|---|---|
+| `w appIs "AppName"` | Window's app matches exactly (case-insensitive) |
+| `w contentContains "substr"` | Window title contains substr (case-insensitive) |
+| `w isBiggerThan (W, H)` | Window is at least W wide and H tall |
+| `w isSmallerThan (W, H)` | Window is at most W wide and H tall |
+| `w hasTag "tag"` | Window has a static tag (assigned by another rule's effect) |
+| `w hasDynamicTag "tag"` | Window has a user-toggled dynamic tag from the menu |
+
+Combine with and, or, not, and ( … ) for grouping. 
+Precedence: `not` > `and` > `or`.
+
+#### Effects
+
+| Syntax | Meaning |
+|---|---|
+| `w isBiggerThan (W, H)` | Minimum-size constraint |
+| `w isSmallerThan (W, H)` | Maximum-size constraint |
+| `w1 isLeftOf w2` | w1's right edge ≤ w2's left edge (with 15px padding) |
+| `w1 isRightOf w2` | Mirror of isLeftOf |
+| `w1 isAbove w2` | w1's bottom ≤ w2's top (with 15px padding) |
+| `w1 isBelow w2` | Mirror of isAbove |
+| `w isLandscape` | Enforces width/height ratio ≥ 7/5 |
+| `w isPortrait` | Enforces height/width ratio ≥ 7/5 |
+| `w hasTag "tag"` | Assigns a static tag to the window (usable as a condition elsewhere) |
+
+Combine with `and`, `or`, and `( … )` with same precedence as earlier. `not` is not allowed in effects.
