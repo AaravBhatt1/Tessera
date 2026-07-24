@@ -33,7 +33,6 @@ struct Layout {
 enum SolveResult {
     case solved(Layout)
     case unsatisfiable
-    case timedOut
 }
 
 @MainActor class LayoutSolver {
@@ -116,7 +115,7 @@ enum SolveResult {
     func solve() async -> SolveResult {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(5000))
+        params.set("timeout", UInt32(3000))
         optimizer.set(params)
 
         for expr in hardConstraints {
@@ -194,13 +193,10 @@ enum SolveResult {
         }
         optimizer.maximize(minPerimeter)
 
-        switch optimizer.check() {
-        case z3.unsat:
+        // z3.unknown means the solver hit the timeout; fall through and use
+        // whatever best-effort model it found so far rather than failing.
+        if optimizer.check() == z3.unsat {
             return .unsatisfiable
-        case z3.unknown:
-            return .timedOut
-        default:
-            break
         }
 
         let model : z3.model = optimizer.get_model()

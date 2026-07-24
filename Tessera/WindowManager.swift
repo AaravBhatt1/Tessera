@@ -14,7 +14,6 @@ enum LayoutOutcome {
     case success
     case noActiveScreen
     case unsatisfiable
-    case timedOut
     case applyFailed
 }
 
@@ -270,6 +269,13 @@ class WindowManager {
             guard let (ex, ey) = getScreenPosition(for: element) else { return false }
             return ex == screenX && ey == screenY
         }
+        var originalGeometries : [WindowKey : (position: (Int, Int), size: (Int, Int))] = [:]
+        for element in elements {
+            if let position = getWindowPosition(for: element), let size = getWindowSize(for: element) {
+                originalGeometries[WindowKey(element: element)] = (position, size)
+            }
+        }
+
         let layoutSolver : LayoutSolver = LayoutSolver()
 
         ConfigFileLoader.shared.reload()
@@ -327,9 +333,12 @@ class WindowManager {
         case .solved(let l):
             layout = l
         case .unsatisfiable:
+            for element in elements {
+                guard let original = originalGeometries[WindowKey(element: element)] else { continue }
+                setWindowPosition(for: element, to: original.position)
+                setWindowSize(for: element, to: original.size)
+            }
             return .unsatisfiable
-        case .timedOut:
-            return .timedOut
         }
 
         for (window, geometry) in layout.windows {
