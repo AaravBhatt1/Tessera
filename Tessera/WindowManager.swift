@@ -14,6 +14,7 @@ enum LayoutOutcome {
     case success
     case noActiveScreen
     case unsatisfiable
+    case timedOut
     case applyFailed
 }
 
@@ -183,14 +184,8 @@ class WindowManager {
 
     // Sets the window position to an x and y co-ordinate
     static func setWindowPosition(for window: AXUIElement, to position: (Int, Int)) -> Bool {
-        // Check if window is the same application
-        var pid : pid_t = 0
-        AXUIElementGetPid(window, &pid)
-        let myPid : pid_t = getpid()
-        guard pid != myPid else {
-            // TODO: Potentially support modifying my own window
-            return false
-        }
+        // Set size to minimum
+        let _ = setWindowSize(for: window, to: (0, 0))
 
 
         var cgPoint : CGPoint = CGPoint(x: CGFloat(position.0), y: CGFloat(position.1))
@@ -230,30 +225,26 @@ class WindowManager {
         return true
     }
 
-    // Resizes the window down to find the smallest size the app will allow, then optionally restores the original size
-    static func getMinimumWindowSize(for window: AXUIElement, restoreOriginalSize: Bool = true) -> (Int, Int)? {
-        guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
-            return nil
-        }
-
+    // Resizes the window down to find the smallest size the app will allow
+    // NOTE: This will move the window and change its size
+    static func getMinimumWindowSize(for window: AXUIElement) -> (Int, Int)? {
         guard setWindowSize(for: window, to: (200, 200)) else {
             return nil
         }
 
         let minimumSize : (Int, Int)? = getWindowSize(for: window)
 
-        if restoreOriginalSize {
-            _ = setWindowSize(for: window, to: originalSize)
-        }
-
         return minimumSize
     }
 
-    // Resizes the window up to the full screen size to find the largest size the app will allow, then optionally restores the original size
-    static func getMaximumWindowSize(for window: AXUIElement, restoreOriginalSize: Bool = true) -> (Int, Int)? {
-        guard let originalSize : (Int, Int) = getWindowSize(for: window) else {
-            return nil
-        }
+    // Resizes the window up to the full screen size to find the largest size the app will allow
+    // NOTE: This will move the window and change its size
+    static func getMaximumWindowSize(for window: AXUIElement) -> (Int, Int)? {
+        
+        // Fixes issues with overflowing screen area
+        guard let screen = getActiveScreen(),
+              let (screenX, screenY) = getScreenPosition(for: screen) else { return nil }
+        let _ = setWindowPosition(for: window, to: (screenX, screenY))
         
         guard let (screenWidth, screenHeight) : (Int, Int) = getScreenSize() else {
             return nil
@@ -264,10 +255,6 @@ class WindowManager {
         }
 
         let maximumSize : (Int, Int)? = getWindowSize(for: window)
-
-        if restoreOriginalSize {
-            _ = setWindowSize(for: window, to: originalSize)
-        }
 
         return maximumSize
     }
@@ -300,8 +287,7 @@ class WindowManager {
             let title : String = getWindowDesc(for: element) ?? ""
             let w : LayoutWindow = layoutSolver.addWindow(element: element, app: app, title: title)
 
-            // Locked windows are pinned to their current geometry; the usual size /
-            // screen-bound envelope is skipped so the pin can't be over-constrained.
+            // Locked windows are stuck as their current size
             if LockStore.shared.isLocked(element),
                let (curX, curY) = getWindowPosition(for: element),
                let (curW, curH) = getWindowSize(for: element) {
@@ -342,11 +328,13 @@ class WindowManager {
             layout = l
         case .unsatisfiable:
             return .unsatisfiable
+        case .timedOut:
+            return .timedOut
         }
 
         for (window, geometry) in layout.windows {
-            guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return .applyFailed }
             guard setWindowPosition(for: window.element, to: (geometry.x, geometry.y)) else { return .applyFailed }
+            guard setWindowSize(for: window.element, to: (geometry.width, geometry.height)) else { return .applyFailed }
         }
 
         return .success

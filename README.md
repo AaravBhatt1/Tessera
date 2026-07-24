@@ -139,3 +139,52 @@ E.g
 ```
 set window isBiggerThan (40%, 40%) when window hasDynamicTag "big"
 ```
+
+---
+
+## Reference
+
+Conditions and effects can be combined with `and`, `or`, `not`, and parentheses (`not` is only valid in `when` clauses). In the tables below, `w` and `h` refer to a size value, which can be an absolute pixel value (e.g. `300`) or a percentage of the screen (e.g. `40%`).
+
+### Conditions
+
+Used in a `when` clause.
+
+| Condition | Description |
+|---|---|
+| `window appIs "name"` | True if the window's application name matches `name` |
+| `window contentContains "text"` | True if the window's title contains `text` |
+| `window hasTag "tag"` | True if the window has been assigned `tag` by a `set ... hasTag` effect |
+| `window hasDynamicTag "tag"` | True if the user has toggled `tag` on for the window via the toolbar UI |
+| `window isBiggerThan (w, h)` | True if the window is at least `w` wide and `h` tall |
+| `window isSmallerThan (w, h)` | True if the window is at most `w` wide and `h` tall |
+| `window1 isBiggerThan window2` | True if `window1` is at least as wide and as tall as `window2` |
+| `window1 isSmallerThan window2` | True if `window1` is at most as wide and as tall as `window2` |
+| `window1 isLeftOf window2` | True if `window1` is positioned to the left of `window2` |
+| `window1 isRightOf window2` | True if `window1` is positioned to the right of `window2` |
+| `window1 isAbove window2` | True if `window1` is positioned above `window2` |
+| `window1 isBelow window2` | True if `window1` is positioned below `window2` |
+| `window isLandscape` | True if the window is wider than it is tall |
+| `window isPortrait` | True if the window is taller than it is wide |
+
+### Effects
+
+Used in a `set` clause.
+
+| Effect | Description |
+|---|---|
+| `window isBiggerThan (w, h)` | Constrains the window to be at least `w` wide and `h` tall |
+| `window isSmallerThan (w, h)` | Constrains the window to be at most `w` wide and `h` tall |
+| `window1 isBiggerThan window2` | Constrains `window1` to be at least as wide and as tall as `window2` |
+| `window1 isSmallerThan window2` | Constrains `window1` to be at most as wide and as tall as `window2` |
+| `window1 isLeftOf window2` | Constrains `window1` to be positioned to the left of `window2` |
+| `window1 isRightOf window2` | Constrains `window1` to be positioned to the right of `window2` |
+| `window1 isAbove window2` | Constrains `window1` to be positioned above `window2` |
+| `window1 isBelow window2` | Constrains `window1` to be positioned below `window2` |
+| `window isLandscape` | Constrains the window to be wider than it is tall |
+| `window isPortrait` | Constrains the window to be taller than it is wide |
+| `window hasTag "tag"` | Assigns `tag` to the window, so it can be matched with `hasTag` in other rules' `when` clauses |
+
+Note: `hasDynamicTag` cannot be set as an effect — it can only be toggled by the user via the toolbar UI, not assigned by a rule.
+
+

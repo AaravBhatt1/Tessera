@@ -33,6 +33,7 @@ struct Layout {
 enum SolveResult {
     case solved(Layout)
     case unsatisfiable
+    case timedOut
 }
 
 @MainActor class LayoutSolver {
@@ -87,8 +88,6 @@ enum SolveResult {
         return context.real_val(numerator, denominator)
     }
 
-    // Logical negation. Swift's C++ interop can't import the prefix `operator!`
-    // from z3++.h, so we express !e as `e == false`.
     func makeNot(_ expr : z3.expr) -> z3.expr {
         return expr == context.bool_val(false)
     }
@@ -101,8 +100,6 @@ enum SolveResult {
         return expr
     }
 
-    // Dynamic tag vars live in their own namespace: they're pinned by the UI, not
-    // touched by rule effects, and read via hasDynamicTag conditions.
     func getDynamicTagVar(window : LayoutWindow, tag : String) -> z3.expr {
         if let cached = dynamicTagVars[window]?[tag] { return cached }
         let hash = CFHash(window.element)
@@ -111,7 +108,6 @@ enum SolveResult {
         return expr
     }
 
-    // Pin a window's dynamic tag to a fixed truth value as a hard constraint.
     func setDynamicTagHard(window : LayoutWindow, tag : String, value : Bool) {
         let expr = getDynamicTagVar(window: window, tag: tag)
         hardConstraints.append(expr == context.bool_val(value))
@@ -120,7 +116,7 @@ enum SolveResult {
     func solve() async -> SolveResult {
         var optimizer : z3.optimize = z3.optimize(&context)
         var params : z3.params = z3.params(&context)
-        params.set("timeout", UInt32(2000))
+        params.set("timeout", UInt32(5000))
         optimizer.set(params)
 
         for expr in hardConstraints {
@@ -191,10 +187,20 @@ enum SolveResult {
 
         let varianceRatio : z3.expr = context.real_val(Int32(50))
         optimizer.maximize(varianceRatio * totalPerimeter - totalSpread)
-        
-        // Treat unknown (timeout) as satisfying — best-effort read the model Z3 has.
-        if optimizer.check() == z3.unsat {
+
+        let minPerimeter : z3.expr = context.real_const("minPerimeter")
+        for w in windows {
+            optimizer.add(minPerimeter <= w.width + w.height)
+        }
+        optimizer.maximize(minPerimeter)
+
+        switch optimizer.check() {
+        case z3.unsat:
             return .unsatisfiable
+        case z3.unknown:
+            return .timedOut
+        default:
+            break
         }
 
         let model : z3.model = optimizer.get_model()

@@ -18,14 +18,17 @@
 // C3' :- and C3 | ε
 // CN  :- not CN | C4    -- NOT level (unary, right-assoc; only allowed in conditions)
 // C4  :- ( C2 ) | C5
-// C5  :- id appIs str | id contentContains str | id isBiggerThan WS | id isSmallerThan WS | id hasTag str | id hasDynamicTag str
+// C5  :- id appIs str | id contentContains str | id hasTag str | id hasDynamicTag str
+//        | id isBiggerThan WS | id isBiggerThan id | id isSmallerThan WS | id isSmallerThan id
+//        | id isLeftOf id | id isRightOf id | id isAbove id | id isBelow id | id isLandscape | id isPortrait
 // E2  :- E3 E2'         -- OR level
 // E2' :- or E2 | ε
 // E3  :- E4 E3'         -- AND level (binds tighter than OR → DNF by default)
 // E3' :- and E3 | ε
 // E4  :- ( E2 ) | E5
 // E5  :- id E5'
-// E5' :- isLeftOf id | isRightOf id | isAbove id | isBelow id | isLandscape | isPortrait | isBiggerThan WS | isSmallerThan WS | hasTag str
+// E5' :- isLeftOf id | isRightOf id | isAbove id | isBelow id | isLandscape | isPortrait
+//        | isBiggerThan WS | isBiggerThan id | isSmallerThan WS | isSmallerThan id | hasTag str
 // WS  :- ( SV , SV )
 // SV  :- int | int %
 
@@ -185,7 +188,9 @@ struct ConfigParser {
         return try parseAtomicCondition()
     }
 
-    // C5 :- id appIs str | id contentContains str | id isBiggerThan WS | id isSmallerThan WS
+    // C5 :- id appIs str | id contentContains str | id hasTag str | id hasDynamicTag str
+    //       | id isBiggerThan WS | id isBiggerThan id | id isSmallerThan WS | id isSmallerThan id
+    //       | id isLeftOf id | id isRightOf id | id isAbove id | id isBelow id | id isLandscape | id isPortrait
     private mutating func parseAtomicCondition() throws -> ConditionExpr {
         let w1 = try expectIdentifier()
         guard let op = advance() else { throw ParseError.unexpectedEnd }
@@ -193,17 +198,29 @@ struct ConfigParser {
         case .appIs: return .appIs(window: w1, value: try expectString())
         case .contentContains: return .contentContains(window: w1, value: try expectString())
         case .isBiggerThan:
-            let (w, h) = try parseSizeArgs()
-            return .isBiggerThan(window: w1, width: w, height: h)
+            if peek() == .openBracket {
+                let (w, h) = try parseSizeArgs()
+                return .isBiggerThan(window: w1, width: w, height: h)
+            }
+            return .isBiggerThanWindow(window1: w1, window2: try expectIdentifier())
         case .isSmallerThan:
-            let (w, h) = try parseSizeArgs()
-            return .isSmallerThan(window: w1, width: w, height: h)
+            if peek() == .openBracket {
+                let (w, h) = try parseSizeArgs()
+                return .isSmallerThan(window: w1, width: w, height: h)
+            }
+            return .isSmallerThanWindow(window1: w1, window2: try expectIdentifier())
+        case .isLeftOf:  return .leftOf(window1: w1, window2: try expectIdentifier())
+        case .isRightOf: return .rightOf(window1: w1, window2: try expectIdentifier())
+        case .isAbove:   return .above(window1: w1, window2: try expectIdentifier())
+        case .isBelow:   return .below(window1: w1, window2: try expectIdentifier())
+        case .isLandscape: return .landscape(window: w1)
+        case .isPortrait:  return .portrait(window: w1)
         case .hasTag:
             return .hasTag(window: w1, tag: try expectString())
         case .hasDynamicTag:
             return .hasDynamicTag(window: w1, tag: try expectString())
         default:
-            throw ParseError.unexpected(op, expected: "appIs/contentContains/isBiggerThan/isSmallerThan/hasTag/hasDynamicTag")
+            throw ParseError.unexpected(op, expected: "appIs/contentContains/isBiggerThan/isSmallerThan/isLeftOf/isRightOf/isAbove/isBelow/isLandscape/isPortrait/hasTag/hasDynamicTag")
         }
     }
 
@@ -252,11 +269,17 @@ struct ConfigParser {
         case .isLandscape: return .landscape(window: w1)
         case .isPortrait:  return .portrait(window: w1)
         case .isBiggerThan:
-            let (w, h) = try parseSizeArgs()
-            return .minimumSize(window: w1, wMin: w, hMin: h)
+            if peek() == .openBracket {
+                let (w, h) = try parseSizeArgs()
+                return .minimumSize(window: w1, wMin: w, hMin: h)
+            }
+            return .biggerThanWindow(window1: w1, window2: try expectIdentifier())
         case .isSmallerThan:
-            let (w, h) = try parseSizeArgs()
-            return .maximumSize(window: w1, wMax: w, hMax: h)
+            if peek() == .openBracket {
+                let (w, h) = try parseSizeArgs()
+                return .maximumSize(window: w1, wMax: w, hMax: h)
+            }
+            return .smallerThanWindow(window1: w1, window2: try expectIdentifier())
         case .hasTag:
             return .hasTag(window: w1, tag: try expectString())
         default:

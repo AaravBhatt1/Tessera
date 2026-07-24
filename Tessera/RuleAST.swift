@@ -8,10 +8,6 @@
 import Foundation
 import Z3
 
-// TODO: Add tagging support (e.g. conditions based on window having some tag, and effects based on tagging windows)
-// TODO: Add support for relative sizing (w1 isBiggerThan w2)
-
-
 // Using indirect enum for FP style ADTs
 
 // A width or height literal in the rule DSL: either an absolute pixel value or a percentage
@@ -78,10 +74,17 @@ indirect enum ConditionExpr {
     // Returns an expression
     case isBiggerThan(window: String, width: SizeValue, height: SizeValue)
     case isSmallerThan(window: String, width: SizeValue, height: SizeValue)
+    case isBiggerThanWindow(window1: String, window2: String)
+    case isSmallerThanWindow(window1: String, window2: String)
+    case leftOf(window1: String, window2: String)
+    case rightOf(window1: String, window2: String)
+    case above(window1: String, window2: String)
+    case below(window1: String, window2: String)
+    case landscape(window: String)
+    case portrait(window: String)
     case hasTag(window: String, tag: String)
     // Dynamic tags are user-controlled; effects can't set them.
     case hasDynamicTag(window: String, tag: String)
-    // TODO: window1 isBiggerThan window2?
 
     case and(ConditionExpr, ConditionExpr)
     case or(ConditionExpr, ConditionExpr)
@@ -104,6 +107,30 @@ indirect enum ConditionExpr {
         case .isSmallerThan(let v, let width, let height):
             guard let w = vars[v] else { return .bool(false) }
             return .z3Expr((w.width <= width.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height <= height.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor)))
+        case .isBiggerThanWindow(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr((w1.width >= w2.width) && (w1.height >= w2.height))
+        case .isSmallerThanWindow(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr((w1.width <= w2.width) && (w1.height <= w2.height))
+        case .leftOf(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr(w1.x + w1.width + solver.makeConstant(15) <= w2.x)
+        case .rightOf(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr(w2.x + w2.width + solver.makeConstant(15) <= w1.x)
+        case .above(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr(w1.y + w1.height + solver.makeConstant(15) <= w2.y)
+        case .below(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return .bool(false) }
+            return .z3Expr(w2.y + w2.height + solver.makeConstant(15) <= w1.y)
+        case .landscape(let v):
+            guard let w = vars[v] else { return .bool(false) }
+            return .z3Expr(solver.makeConstant(5) * w.width >= solver.makeConstant(7) * w.height)
+        case .portrait(let v):
+            guard let w = vars[v] else { return .bool(false) }
+            return .z3Expr(solver.makeConstant(5) * w.height >= solver.makeConstant(7) * w.width)
         case .hasTag(let v, let tag):
             guard let w = vars[v] else { return .bool(false) }
             return .z3Expr(solver.getTagVar(window: w, tag: tag))
@@ -128,6 +155,14 @@ indirect enum ConditionExpr {
         case .isFocused(let w): accum.insert(w)
         case .isBiggerThan(let w, _, _): accum.insert(w)
         case .isSmallerThan(let w, _, _): accum.insert(w)
+        case .isBiggerThanWindow(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .isSmallerThanWindow(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .leftOf(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .rightOf(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .above(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .below(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .landscape(let w): accum.insert(w)
+        case .portrait(let w): accum.insert(w)
         case .hasTag(let w, _): accum.insert(w)
         case .hasDynamicTag(let w, _): accum.insert(w)
         case .and(let a, let b): a.getFreeVars(accum: &accum); b.getFreeVars(accum: &accum)
@@ -245,6 +280,8 @@ struct Rule {
 indirect enum ConstraintEffect {
     case minimumSize(window: String, wMin: SizeValue, hMin: SizeValue)
     case maximumSize(window: String, wMax: SizeValue, hMax: SizeValue)
+    case biggerThanWindow(window1: String, window2: String)
+    case smallerThanWindow(window1: String, window2: String)
     case preferredPosition(window: String, x: Int, y: Int)
     case preferredSize(window: String, width: SizeValue, height: SizeValue)
     case leftOf(window1: String, window2: String)
@@ -261,6 +298,8 @@ indirect enum ConstraintEffect {
         switch self {
         case .minimumSize(let w, _, _): accum.insert(w)
         case .maximumSize(let w, _, _): accum.insert(w)
+        case .biggerThanWindow(let w1, let w2): accum.insert(w1); accum.insert(w2)
+        case .smallerThanWindow(let w1, let w2): accum.insert(w1); accum.insert(w2)
         case .preferredPosition(let w, _, _): accum.insert(w)
         case .preferredSize(let w, _, _): accum.insert(w)
         case .leftOf(window1: let w1, window2: let w2): accum.insert(w1); accum.insert(w2)
@@ -295,6 +334,12 @@ indirect enum ConstraintEffect {
         case .maximumSize(let v, let wMax, let hMax):
             guard let w = vars[v] else { return nil }
             return (w.width <= wMax.resolveWidth(for: w, solver: solver, screenSizeFor: screenSizeFor)) && (w.height <= hMax.resolveHeight(for: w, solver: solver, screenSizeFor: screenSizeFor))
+        case .biggerThanWindow(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return nil }
+            return (w1.width >= w2.width) && (w1.height >= w2.height)
+        case .smallerThanWindow(let v1, let v2):
+            guard let w1 = vars[v1], let w2 = vars[v2] else { return nil }
+            return (w1.width <= w2.width) && (w1.height <= w2.height)
         case .preferredPosition(let v, let x, let y):
             guard let w = vars[v] else { return nil }
             return (w.x == solver.makeConstant(x)) && (w.y == solver.makeConstant(y))

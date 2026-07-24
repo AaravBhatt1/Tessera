@@ -317,6 +317,9 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .unsatisfiable:
             alert.messageText = "No layout satisfies your rules"
             alert.informativeText = "The constraint solver could not find a layout that meets every rule. Try removing or relaxing conflicting rules."
+        case .timedOut:
+            alert.messageText = "Layout solver timed out"
+            alert.informativeText = "The constraint solver took too long to find a layout. Try simplifying your rules or reducing the number of open windows."
         case .success, .noActiveScreen, .applyFailed:
             return
         }
