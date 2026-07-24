@@ -8,7 +8,7 @@ Most window managers for MacOS are made for 'advanced users', requiring them to 
 
 ## How to use?
 
-1. Install Tessera from the app store
+1. Install Tessera from the releases page (on Github)
 2. Run Tessera
 3. Use `CMD+SHIFT+SPACE` or use the toolbar UI to declutter your windows into a tiled layout
 4. [OPTIONAL] Configure tiling preferences using `~/.tessera/rules.conf` and click the 'reload config' button in the toolbar UI
@@ -186,5 +186,3 @@ Used in a `set` clause.
 | `window hasTag "tag"` | Assigns `tag` to the window, so it can be matched with `hasTag` in other rules' `when` clauses |
 
 Note: `hasDynamicTag` cannot be set as an effect — it can only be toggled by the user via the toolbar UI, not assigned by a rule.
-
-
